@@ -14,7 +14,7 @@
 
 PHP namespace: **`Gplanchat\Bridge\Temporal`**.
 
-**Deployment invariant**: when Temporal is enabled for Durable, the **journal** (`EventStore`) and **application queues** share the **same** Temporal connection (`temporal://…`). **Access mode** (journal receive-only vs application envelope) is selected via **`options.purpose`** (`journal` \| `application`) or inferred (presence of **`inner`** ⇒ application). Schemes **`temporal-journal://`** and **`temporal-application://`** are still accepted and normalized to **`temporal://`**.
+**Deployment invariant**: when Temporal is enabled for Durable, the **journal** (`EventStore`) and **application queues** share the **same** Temporal connection (`temporal://…`). What a transport does is selected by its **`purpose`** — `journal`, `application`, `activity_worker` or `nexus_worker`, see [Transport purposes](#transport-purposes) — given as `options.purpose` or `?purpose=` in the DSN, or inferred: an **`inner`** DSN means `application`, nothing means `journal`. Schemes **`temporal-journal://`** and **`temporal-application://`** are still accepted and normalized to **`temporal://`**.
 
 ## Requirements
 
@@ -29,6 +29,8 @@ PHP namespace: **`Gplanchat\Bridge\Temporal`**.
 | `TemporalTransportFactory` | Single **`temporal://`** factory: journal (`TemporalJournalTransport`, receive-only) or application (`TemporalApplicationTransport` + `inner`) from `purpose` / `inner` |
 | `TemporalJournalTransport` | Symfony Messenger **receive-only** transport (same `temporal://…` DSN, no `inner` by default); consumed with `messenger:consume <transport_name>` |
 | `TemporalApplicationTransport` | Wraps a real Messenger transport (`temporal://…?inner=…` or `options.inner`) for Durable application messages |
+| `TemporalActivityWorkerTransport` | Symfony Messenger **receive-only** transport (`purpose: activity_worker`): each `get()` long-polls an activity task, runs the handler and reports the outcome |
+| `TemporalNexusWorkerTransport` | Symfony Messenger **receive-only** transport (`purpose: nexus_worker`): each `get()` long-polls a Nexus task and serves the operation the application declared |
 | `TemporalBridgeBundle` | Registers the `temporal://` Messenger factory |
 
 ## Transport DSN (single scheme)
@@ -37,7 +39,40 @@ PHP namespace: **`Gplanchat\Bridge\Temporal`**.
 temporal://127.0.0.1:7233?namespace=default&journal_task_queue=durable-journal&tls=0
 ```
 
-Query parameters: `namespace`, `task_queue` or `journal_task_queue`, `workflow_type`, `workflow_task_queue`, `activity_task_queue`, `identity`, `tls` (bool).
+Query parameters: `namespace`, `task_queue` or `journal_task_queue`, `workflow_type`, `workflow_task_queue`, `activity_task_queue`, `nexus_task_queue`, `identity`, `tls` (bool), `inner`, `purpose`. Unknown keys are ignored today (a typo falls back to the default silently — issue #353 makes them fail).
+
+## Transport purposes
+
+One factory, four transports. The `purpose` decides which one a `temporal://` DSN builds; the last column is the setup error the factory throws when the wiring it needs is missing, and what to do about it.
+
+| `purpose` | What the transport does | Consumed by | When you see this |
+|---|---|---|---|
+| `journal` — the default when there is no `inner` | **Receive-only.** Each `get()` long-polls a workflow task on the journal task queue, replays the execution from the server's history and answers the task. | `messenger:consume <name>` | *Temporal journal transport requires a WorkflowRegistry (enable durable.temporal.dsn in the Durable bundle)* — the bundle did not wire the registry into the factory: set `durable.temporal.dsn`, or build the transport with `TemporalJournalTransport::fromConnection()` yourself. |
+| `application` — inferred from `inner` | Wraps a real Messenger transport (`inner`) so Durable's application messages ride it; the Temporal connection is shared, the traffic goes through `inner`. | whoever consumes the inner transport | *Temporal application transport requires inner= in the temporal:// DSN or options.inner* — add the inner DSN. |
+| `activity_worker` | **Receive-only.** Each `get()` long-polls an activity task on the activity task queue, runs the activity handler and reports completion or failure to the server. | `messenger:consume <name>` | *purpose=activity_worker requires TemporalActivityWorker (inject it via the Durable bundle DI or wire TemporalActivityWorkerTransport manually)* — the bundle wires the worker when `durable.temporal.dsn` is set; outside the bundle, construct the transport with a `TemporalActivityWorker`. |
+| `nexus_worker` | **Receive-only.** Each `get()` long-polls the Nexus task queue and serves the operations the application declares (`#[AsNexusServiceHandler]`, `#[FulfilsNexusOperation]`). | `messenger:consume <name>` | *purpose=nexus_worker requires TemporalNexusWorker (declare at least one durable.nexus_handler, or wire TemporalNexusWorkerTransport manually)* — declare a handler, or drop the transport: a shop that only calls operations does not serve any. |
+
+Any other value fails with *Unknown temporal purpose "…", expected journal, application, activity_worker, or nexus_worker*.
+
+The three receive-only transports do their work inside `get()` and hand nothing to the Messenger worker, so `retry_strategy`, `failure_transport` and `messenger:consume --limit` have no effect on them: retries are the server's retry policy, and a failed poll is retried by the next `get()`. A worker deployment typically consumes the three at once:
+
+```yaml
+framework:
+    messenger:
+        transports:
+            durable_temporal_journal:
+                dsn: '%env(DURABLE_DSN)%'
+            durable_temporal_activity:
+                dsn: '%env(DURABLE_DSN)%'
+                options: { purpose: activity_worker }
+            durable_temporal_nexus:
+                dsn: '%env(DURABLE_DSN)%'
+                options: { purpose: nexus_worker }
+```
+
+```bash
+bin/console messenger:consume durable_temporal_journal durable_temporal_activity durable_temporal_nexus
+```
 
 ### Journal (receive-only)
 
@@ -59,7 +94,7 @@ Or `temporal://…` without `inner` in the URL and **`options: { purpose: applic
 1. In the monorepo the code lives under `src/Bridge/Temporal`; in a split repo: `composer require gplanchat/durable-bridge-temporal`.
 2. Register `Gplanchat\Bridge\Temporal\TemporalBridgeBundle` in the kernel.
 3. `framework.messenger.transports.<name>: 'temporal://…'` (without `inner`, journal DSN — e.g. `journal_task_queue=durable-journal`).
-4. `messenger:consume <name>` (standard Symfony worker; poll and journal task handling are inside `TemporalJournalTransport::get()`).
+4. `messenger:consume <name>` (standard Symfony worker; poll and journal task handling are inside `TemporalJournalTransport::get()`). Add an `activity_worker` transport for the activities and, if the application serves operations, a `nexus_worker` one — see [Transport purposes](#transport-purposes).
 5. Wire `EventStoreInterface` to `TemporalJournalEventStore` where appropriate (explicit DI).
 
 ## FrankenPHP worker
