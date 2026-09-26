@@ -29,6 +29,7 @@ use Gplanchat\Durable\Versioning\ChangePoint;
 use Temporal\Api\Command\V1\Command;
 use Temporal\Api\Command\V1\CompleteWorkflowExecutionCommandAttributes;
 use Temporal\Api\Command\V1\FailWorkflowExecutionCommandAttributes;
+use Temporal\Api\Command\V1\ModifyWorkflowPropertiesCommandAttributes;
 use Temporal\Api\Command\V1\RequestCancelActivityTaskCommandAttributes;
 use Temporal\Api\Command\V1\RequestCancelNexusOperationCommandAttributes;
 use Temporal\Api\Command\V1\ScheduleActivityTaskCommandAttributes;
@@ -418,6 +419,21 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         $cmd = new Command();
         $cmd->setCommandType(CommandType::COMMAND_TYPE_CANCEL_WORKFLOW_EXECUTION);
         $cmd->setCancelWorkflowExecutionCommandAttributes($attrs);
+        $this->commands[] = $cmd;
+    }
+
+    /**
+     * COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES: what the run waits on, in the memo the run list reads
+     * (#514). `null` clears it: a stale wait sends the operator to the wrong place.
+     */
+    public function recordWait(?string $waitingOn): void
+    {
+        $memo = new Memo();
+        $memo->getFields()[JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON] = JsonPlainPayload::encode($waitingOn);
+
+        $cmd = new Command();
+        $cmd->setCommandType(CommandType::COMMAND_TYPE_MODIFY_WORKFLOW_PROPERTIES);
+        $cmd->setModifyWorkflowPropertiesCommandAttributes(new ModifyWorkflowPropertiesCommandAttributes(['upserted_memo' => $memo]));
         $this->commands[] = $cmd;
     }
 
