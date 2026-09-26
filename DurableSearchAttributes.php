@@ -65,7 +65,7 @@ final class DurableSearchAttributes
      */
     public static function value(string $value): string
     {
-        $normalized = strtr($value, ['%' => '%25', '.' => '%2E', '\\' => '.']);
+        $normalized = self::normalized($value);
         if (\strlen($normalized) <= self::MAX_LENGTH) {
             return $normalized;
         }
@@ -78,6 +78,15 @@ final class DurableSearchAttributes
         $prefix = preg_replace('/[\xC0-\xFF][\x80-\xBF]*$/', '', substr($normalized, 0, $kept)) ?? '';
 
         return $prefix . self::LONG_FORM_SEPARATOR . $hash;
+    }
+
+    /**
+     * Never hashed: what `STARTS_WITH` compares, the form of a prefix being a prefix of the form.
+     * A hashed value keeps only its first characters, and a longer prefix misses it.
+     */
+    public static function normalized(string $value): string
+    {
+        return strtr($value, ['%' => '%25', '.' => '%2E', '\\' => '.']);
     }
 
     /**

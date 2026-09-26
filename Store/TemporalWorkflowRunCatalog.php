@@ -6,6 +6,7 @@ namespace Gplanchat\Bridge\Temporal\Store;
 
 use Google\Protobuf\Timestamp;
 use Gplanchat\Bridge\Temporal\Codec\JsonPlainPayload;
+use Gplanchat\Bridge\Temporal\DurableSearchAttributes;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalHistoryCursor;
 use Gplanchat\Bridge\Temporal\Journal\JournalExecutionIdResolver;
@@ -15,6 +16,7 @@ use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Observation\BackendHealth;
 use Gplanchat\Durable\Observation\WorkflowRunDescription;
 use Gplanchat\Durable\Observation\WorkflowRunEvent;
+use Gplanchat\Durable\Observation\WorkflowRunFilter;
 use Gplanchat\Durable\Observation\WorkflowRunPage;
 use Gplanchat\Durable\Observation\WorkflowRunStatus;
 use Gplanchat\Durable\Port\WorkflowRunCatalogInterface;
@@ -48,13 +50,22 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
         private readonly ?TemporalHistoryCursor $historyCursor = null,
     ) {}
 
-    public function listRuns(?WorkflowRunStatus $status = null, ?string $cursor = null, int $limit = 20): WorkflowRunPage
+    public function listRuns(?WorkflowRunStatus $status = null, ?string $cursor = null, int $limit = 20, ?WorkflowRunFilter $filter = null): WorkflowRunPage
     {
         $request = new ListWorkflowExecutionsRequest();
         $request->setNamespace($this->connection->namespace->name());
         $request->setPageSize(max(1, $limit));
-        if (null !== $status) {
-            $request->setQuery(self::visibilityQuery($status));
+        $clauses = null === $status ? [] : [self::visibilityQuery($status)];
+        // Durable's search attributes, spelled as written (#558): no WorkflowType holding a `\` matches.
+        if (null !== $filter?->workflowName) {
+            $clauses[] = DurableSearchAttributes::WORKFLOW_NAME . ' = ' . DurableSearchAttributes::literal(DurableSearchAttributes::value($filter->workflowName));
+        }
+        if (null !== $filter?->executionIdPrefix) {
+            $clauses[] = DurableSearchAttributes::EXECUTION_ID . ' STARTS_WITH ' . DurableSearchAttributes::literal(DurableSearchAttributes::normalized($filter->executionIdPrefix));
+        }
+        if ([] !== $clauses) {
+            // Each clause in parentheses once there are two: the status one may be a `NOT IN`.
+            $request->setQuery(1 === \count($clauses) ? $clauses[0] : '(' . implode(') AND (', $clauses) . ')');
         }
         if (null !== $cursor && '' !== $cursor) {
             $request->setNextPageToken(self::decodeCursor($cursor));
