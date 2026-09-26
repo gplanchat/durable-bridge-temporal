@@ -13,6 +13,7 @@ use Gplanchat\Bridge\Temporal\Journal\JournalExecutionIdResolver;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Bridge\Temporal\WorkflowClient;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
+use Gplanchat\Durable\Exception\RunFilterUnavailableException;
 use Gplanchat\Durable\Observation\BackendHealth;
 use Gplanchat\Durable\Observation\WorkflowRunDescription;
 use Gplanchat\Durable\Observation\WorkflowRunEvent;
@@ -50,8 +51,19 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
         private readonly ?TemporalHistoryCursor $historyCursor = null,
     ) {}
 
+    /**
+     * The filters read Durable's search attributes, which only a host with the switch on writes.
+     */
+    public function canFilterRuns(): bool
+    {
+        return $this->connection->searchAttributes;
+    }
+
     public function listRuns(?WorkflowRunStatus $status = null, ?string $cursor = null, int $limit = 20, ?WorkflowRunFilter $filter = null): WorkflowRunPage
     {
+        if (null !== $filter && !$filter->isEmpty() && !$this->canFilterRuns()) {
+            throw new RunFilterUnavailableException('Filtering Temporal runs reads Durable\'s search attributes: register them on the namespace, then turn durable.temporal.search_attributes on.');
+        }
         $request = new ListWorkflowExecutionsRequest();
         $request->setNamespace($this->connection->namespace->name());
         $request->setPageSize(max(1, $limit));
