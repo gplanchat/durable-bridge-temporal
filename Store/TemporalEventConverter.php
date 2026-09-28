@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Gplanchat\Bridge\Temporal\Store;
 
 use Gplanchat\Bridge\Temporal\Codec\JsonPlainPayload;
+use Gplanchat\Bridge\Temporal\Worker\TemporalExecutionHistory;
 use Gplanchat\Durable\Event\ActivityCancelled;
 use Gplanchat\Durable\Event\ActivityCompleted;
 use Gplanchat\Durable\Event\ActivityFailed;
@@ -23,12 +24,15 @@ use Gplanchat\Durable\Event\SideEffectRecorded;
 use Gplanchat\Durable\Event\TimerCancelled;
 use Gplanchat\Durable\Event\TimerCompleted;
 use Gplanchat\Durable\Event\TimerScheduled;
+use Gplanchat\Durable\Event\VersionMarked;
+use Gplanchat\Durable\Event\WorkflowCancellationDelivered;
 use Gplanchat\Durable\Event\WorkflowCancellationRequested;
 use Gplanchat\Durable\Event\WorkflowExecutionCancelled;
 use Gplanchat\Durable\Event\WorkflowExecutionFailed;
 use Gplanchat\Durable\Event\WorkflowSignalReceived;
 use Gplanchat\Durable\Failure\ActivityRetryState;
 use Gplanchat\Durable\ParentClosePolicy;
+use Gplanchat\Durable\Versioning\ChangePoint;
 use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\Enums\V1\RetryState;
 use Temporal\Api\History\V1\HistoryEvent;
@@ -229,16 +233,19 @@ final class TemporalEventConverter
                 if (null === $attr) {
                     return null;
                 }
-                $slot = $this->sideEffectSlot++;
                 $details = $attr->getDetails();
-                $result = null;
-                if (null !== $details && $details->offsetExists('result')) {
-                    $detail = $details->offsetGet('result');
-                    $payloads = $detail->getPayloads();
-                    $result = $payloads->count() > 0 ? JsonPlainPayload::decode($payloads[0]) : null;
-                }
+                $detail = static fn(string $key): mixed => null !== $details && $details->offsetExists($key)
+                    ? JsonPlainPayload::decodePayloads($details->offsetGet($key))[0] ?? null
+                    : null;
 
-                return new SideEffectRecorded($this->executionId, (string) $slot, $result);
+                // By name, as TemporalExecutionHistory reads them: only a side effect takes a slot,
+                // or the version marker shifts every side effect after it.
+                return match ($attr->getMarkerName()) {
+                    TemporalExecutionHistory::MARKER_SIDE_EFFECT => new SideEffectRecorded($this->executionId, (string) $this->sideEffectSlot++, $detail('result')),
+                    ChangePoint::MARKER_NAME => new VersionMarked($this->executionId, (string) $detail(ChangePoint::DETAIL_CHANGE_ID), (int) $detail(ChangePoint::DETAIL_VERSION)),
+                    TemporalExecutionHistory::MARKER_CANCELLATION_DELIVERED => new WorkflowCancellationDelivered($this->executionId, array_values(array_map(strval(...), (array) $detail('targets')))),
+                    default => null,
+                };
 
             case EventType::EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
                 $attr = $event->getWorkflowExecutionCompletedEventAttributes();
