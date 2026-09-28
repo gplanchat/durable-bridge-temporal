@@ -53,7 +53,7 @@ final class WorkflowClient implements WorkflowClientInterface
         string $executionId,
         ?WorkflowStartOptions $options = null,
     ): string {
-        $workflowId = $this->workflowId($executionId);
+        $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
         return $workflowId;
@@ -89,7 +89,7 @@ final class WorkflowClient implements WorkflowClientInterface
         string $executionId,
         ?WorkflowStartOptions $options = null,
     ): mixed {
-        $workflowId = $this->workflowId($executionId);
+        $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
         return $this->waitForCompletion($workflowId);
@@ -256,7 +256,8 @@ final class WorkflowClient implements WorkflowClientInterface
     }
 
     /**
-     * Computes the Temporal workflow ID for a given Durable execution ID.
+     * The workflow id a run of this execution lives under, to address it: signal, update, query,
+     * history. Starts use {@see workflowIdOf()}.
      */
     public function workflowId(string $executionId): string
     {
@@ -264,13 +265,34 @@ final class WorkflowClient implements WorkflowClientInterface
     }
 
     /**
-     * The same, for a reader that holds no client: the run catalog finds a run by it (#514).
+     * The workflow id a run of this execution starts under, one per execution id (#566).
+     *
+     * An id made only of `[a-zA-Z0-9._-]`, of at most 900 characters, keeps `durable-<id>`: UUIDs and
+     * ULIDs do, so their runs keep the id they were started under. Any other id keeps a sanitised
+     * prefix, then `~`, which sanitisation never writes, then the SHA-256 of the whole id: two ids
+     * never share one, and a hashed id never spells a kept one. At most 908 characters, as before.
      */
     public static function workflowIdOf(string $executionId): string
     {
-        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? 'invalid';
+        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? '';
+        if ('' !== $executionId && $safe === $executionId && \strlen($executionId) <= 900) {
+            return 'durable-' . $executionId;
+        }
 
-        return 'durable-' . substr($safe, 0, 900);
+        return 'durable-' . substr($safe, 0, 835) . '~' . hash('sha256', $executionId);
+    }
+
+    /**
+     * The workflow id the lossy mapping before #566 gave this execution, when it differs from
+     * {@see workflowIdOf()}; `null` when the two agree.
+     *
+     * @deprecated the fallback to the legacy workflow id goes in 0.1.0-beta1
+     */
+    public static function legacyWorkflowIdOf(string $executionId): ?string
+    {
+        $legacy = 'durable-' . substr(preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? '', 0, 900);
+
+        return $legacy === self::workflowIdOf($executionId) ? null : $legacy;
     }
 
     /** @param array<string, mixed> $payload */
