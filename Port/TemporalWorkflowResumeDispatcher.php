@@ -56,4 +56,9 @@ final class TemporalWorkflowResumeDispatcher implements WorkflowResumeDispatcher
      * completion. There is no application-level message to dispatch.
      */
     public function dispatchResume(string $executionId, array $pendingUpdates = []): void {}
+
+    /**
+     * No-op, for the same reason: the server owns delivery.
+     */
+    public function dispatchResumeAnnouncing(string $executionId, string $activityId): void {}
 }
