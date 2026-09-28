@@ -16,6 +16,7 @@ use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
+use Gplanchat\Durable\Port\History\SlotOutcome;
 use Gplanchat\Durable\Port\History\TimerOutcome;
 use Gplanchat\Durable\Port\WorkflowHistorySourceInterface;
 use Gplanchat\Durable\Versioning\ChangePoint;
@@ -50,7 +51,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var array<int, array{operationId: string, endpoint: string, service: string, operation: string}> */
     private array $nexusOperationCallSites = [];
 
-    /** @var array<int, array{result: mixed, failed: \Throwable|null}> scheduling eventId → outcome */
+    /** @var array<int, SlotOutcome> scheduling eventId → outcome */
     private array $nexusOperationOutcomes = [];
 
     /** @var array<string, int> activity ID → scheduled event ID */
@@ -238,37 +239,28 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                     if (null !== $payload) {
                         $result = JsonPlainPayload::decode($payload);
                     }
-                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = ['result' => $result, 'failed' => null];
+                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = new SlotOutcome($result);
                 }
                 break;
 
             case EventType::EVENT_TYPE_NEXUS_OPERATION_FAILED:
                 $attr = $event->getNexusOperationFailedEventAttributes();
                 if (null !== $attr) {
-                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = [
-                        'result' => null,
-                        'failed' => $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::OperationFailed),
-                    ];
+                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = new SlotOutcome(null, $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::OperationFailed));
                 }
                 break;
 
             case EventType::EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT:
                 $attr = $event->getNexusOperationTimedOutEventAttributes();
                 if (null !== $attr) {
-                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = [
-                        'result' => null,
-                        'failed' => $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::Timeout),
-                    ];
+                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = new SlotOutcome(null, $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::Timeout));
                 }
                 break;
 
             case EventType::EVENT_TYPE_NEXUS_OPERATION_CANCELED:
                 $attr = $event->getNexusOperationCanceledEventAttributes();
                 if (null !== $attr) {
-                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = [
-                        'result' => null,
-                        'failed' => $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::Cancellation),
-                    ];
+                    $this->nexusOperationOutcomes[(int) $attr->getScheduledEventId()] = new SlotOutcome(null, $this->nexusFailure((int) $attr->getScheduledEventId(), NexusOperationFailureKind::Cancellation));
                 }
                 break;
 
@@ -592,7 +584,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         }
     }
 
-    public function findActivitySlotResult(int $slot): ?array
+    public function findActivitySlotResult(int $slot): ?SlotOutcome
     {
         $activityId = $this->scheduledActivityIds[$slot] ?? null;
         if (null === $activityId) {
@@ -603,16 +595,16 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         // operation, it must read back identically, even if the server ended up recording a
         // completion that arrived in the meantime.
         if (isset($this->cancellationDeliveredTargets[$activityId])) {
-            return ['result' => null, 'failed' => new WorkflowCancelledFailure($this->durableExecutionId() ?? '', ActivityCancellationReason::WORKFLOW_CANCELLED)];
+            return new SlotOutcome(null, new WorkflowCancelledFailure($this->durableExecutionId() ?? '', ActivityCancellationReason::WORKFLOW_CANCELLED));
         }
         if (isset($this->activityFailures[$activityId])) {
-            return ['result' => null, 'failed' => $this->activityFailures[$activityId]];
+            return new SlotOutcome(null, $this->activityFailures[$activityId]);
         }
         if (isset($this->activityCancellations[$activityId])) {
-            return ['result' => null, 'failed' => new ActivitySupersededException($activityId, $this->activityCancellations[$activityId])];
+            return new SlotOutcome(null, new ActivitySupersededException($activityId, $this->activityCancellations[$activityId]));
         }
         if (\array_key_exists($activityId, $this->activityResults)) {
-            return ['result' => $this->activityResults[$activityId], 'failed' => null];
+            return new SlotOutcome($this->activityResults[$activityId]);
         }
 
         return null;
@@ -917,10 +909,8 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
      *
      * "Scheduled" is not "settled", and confusing the two would make the workflow conclude on an
      * operation that has not answered.
-     *
-     * @return array{result: mixed, failed: \Throwable|null}|null
      */
-    public function findNexusOperationSlotResult(int $slot): ?array
+    public function findNexusOperationSlotResult(int $slot): ?SlotOutcome
     {
         $operationId = $this->scheduledNexusOperationIds[$slot] ?? null;
         if (null === $operationId) {
