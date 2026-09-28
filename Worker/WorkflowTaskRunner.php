@@ -6,9 +6,12 @@ namespace Gplanchat\Bridge\Temporal\Worker;
 
 use Gplanchat\Bridge\Temporal\Grpc\TemporalHistoryCursor;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
+use Gplanchat\Durable\Awaitable\Awaitable;
 use Gplanchat\Durable\ExecutionContext;
 use Gplanchat\Durable\ExecutionRuntime;
+use Gplanchat\Durable\Observation\WaitReason;
 use Gplanchat\Durable\RegistryActivityExecutor;
+use Gplanchat\Durable\Store\InMemoryEventStore;
 use Gplanchat\Durable\Store\NullEventStore;
 use Gplanchat\Durable\Transport\NoopActivityTransport;
 use Gplanchat\Durable\Worker\WorkflowFiberDriver;
@@ -101,6 +104,15 @@ final class WorkflowTaskRunner
             $commandBuffer,
             $history->cancellationRequestedCause(),
             $history->cancellationAlreadyDelivered(),
+            // The core's words, read from what this task scheduled (#514).
+            static function (Awaitable $pending) use ($commandBuffer, $executionId): ?string {
+                $journal = new InMemoryEventStore();
+                foreach ($commandBuffer->waitJournal() as $event) {
+                    $journal->append($event);
+                }
+
+                return WaitReason::describe($pending, $journal, $executionId);
+            },
         );
 
         (new WorkflowFiberDriver($lifecycle))->run($executionId, $context, $environment, $handler);

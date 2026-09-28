@@ -16,6 +16,7 @@ use Gplanchat\Durable\ChildWorkflowOptions;
 use Gplanchat\Durable\ContinueAsNewOptions;
 use Gplanchat\Durable\Duration as DurableDuration;
 use Gplanchat\Durable\Event\ActivityScheduled;
+use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Failure\WorkflowFailureClassifier;
 use Gplanchat\Durable\Nexus\NexusEndpoint;
@@ -57,6 +58,9 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     /** @var list<Command> */
     private array $commands = [];
 
+    /** @var list<ActivityScheduled|TimerScheduled> what this task scheduled, for the wait's wording (#514) */
+    private array $waitJournal = [];
+
     public function __construct(
         private readonly TemporalConnection $connection,
         private readonly string $executionId,
@@ -70,6 +74,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     public function scheduleActivity(string $activityId, string $activityName, array $payload, ?ActivityOptions $options): void
     {
         $taskQueueName = ((null !== $options ? $options->taskQueue : null) ?? $this->connection->activityTaskQueue)->name();
+        $this->waitJournal[] = new ActivityScheduled($this->executionId, $activityId, $activityName, []);
 
         $attrs = new ScheduleActivityTaskCommandAttributes();
         $attrs->setActivityId($activityId);
@@ -135,6 +140,10 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
 
     public function startTimer(string $timerId, DurableDuration $delay, string $summary): void
     {
+        // ponytail: the worker's clock, not the server's start time; the deadline only words the
+        // wait, and replay reads it back from TIMER_STARTED.
+        $this->waitJournal[] = new TimerScheduled($this->executionId, $timerId, microtime(true) + $delay->toSeconds(), $summary);
+
         $attrs = new StartTimerCommandAttributes();
         $attrs->setTimerId($timerId);
         // The server wants a duration, and it gets one: no more deadline subtraction, no more
@@ -346,6 +355,14 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         $this->commands = [];
 
         return $cmds;
+    }
+
+    /**
+     * @return list<ActivityScheduled|TimerScheduled>
+     */
+    public function waitJournal(): array
+    {
+        return $this->waitJournal;
     }
 
     /**
