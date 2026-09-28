@@ -17,6 +17,7 @@ use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
 use Gplanchat\Durable\Port\History\ChildWorkflowOutcome;
+use Gplanchat\Durable\Port\History\RecordedMessage;
 use Gplanchat\Durable\Port\History\SideEffectOutcome;
 use Gplanchat\Durable\Port\History\SlotOutcome;
 use Gplanchat\Durable\Port\History\TimerOutcome;
@@ -747,28 +748,23 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return \sprintf('%s/%s/%s', $site['endpoint'], $site['service'], $site['operation']);
     }
 
-    public function messageAt(int $index): ?array
+    public function messageAt(int $index): ?RecordedMessage
     {
         // Two separate arrays on the Temporal side, a single order on the workflow side: the
         // merge is done by eventId, otherwise every signal would come before every update.
         $messages = [];
         foreach ($this->signals as $signal) {
-            $messages[] = [
-                'position' => $signal['eventId'],
-                'kind' => 'signal',
-                'name' => $signal['signalName'],
-                'payload' => \is_array($signal['payload']) ? $signal['payload'] : ['value' => $signal['payload']],
-            ];
+            $messages[] = new RecordedMessage(
+                $signal['eventId'],
+                'signal',
+                $signal['signalName'],
+                \is_array($signal['payload']) ? $signal['payload'] : ['value' => $signal['payload']],
+            );
         }
         foreach ($this->updates as $update) {
-            $messages[] = [
-                'position' => $update['eventId'],
-                'kind' => 'update',
-                'name' => $update['updateName'],
-                'payload' => $update['arguments'],
-            ];
+            $messages[] = new RecordedMessage($update['eventId'], 'update', $update['updateName'], $update['arguments']);
         }
-        usort($messages, static fn(array $a, array $b): int => $a['position'] <=> $b['position']);
+        usort($messages, static fn(RecordedMessage $a, RecordedMessage $b): int => $a->position <=> $b->position);
 
         return $messages[$index] ?? null;
     }
