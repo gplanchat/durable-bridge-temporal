@@ -141,8 +141,9 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     public function startTimer(string $timerId, DurableDuration $delay, string $summary): void
     {
         // ponytail: the worker's clock, not the server's start time; the deadline only words the
-        // wait, and replay reads it back from TIMER_STARTED.
-        $this->waitJournal[] = new TimerScheduled($this->executionId, $timerId, microtime(true) + $delay->toSeconds(), $summary);
+        // wait, and replay reads it back from TIMER_STARTED. No summary: the command does not carry
+        // it, so a later task could not word the same wait alike.
+        $this->waitJournal[] = new TimerScheduled($this->executionId, $timerId, microtime(true) + $delay->toSeconds());
 
         $attrs = new StartTimerCommandAttributes();
         $attrs->setTimerId($timerId);
