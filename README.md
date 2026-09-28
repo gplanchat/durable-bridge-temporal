@@ -25,7 +25,7 @@ PHP namespace: **`Gplanchat\Bridge\Temporal`**.
 
 | Class | Role |
 |--------|------|
-| `TemporalJournalEventStore` | Implements `Gplanchat\Durable\Store\EventStoreInterface` |
+| `Store\TemporalReadThroughEventStore` | Implements `Gplanchat\Durable\Store\EventStoreInterface`: reads a run's history from the server when the local store has none; `TemporalRuntimeAssembly::readThroughEventStore()` builds it |
 | `TemporalJournalTransport` | Symfony Messenger **receive-only** receiver: each `get()` long-polls a workflow task, replays the execution from the server's history and answers the task. The bundle registers it as `durable_workflows` |
 | `TemporalActivityWorkerTransport` | **Receive-only** receiver: each `get()` long-polls an activity task, runs the handler and reports the outcome. The bundle registers it as `durable_activities` |
 | `TemporalNexusWorkerTransport` | **Receive-only** receiver: each `get()` long-polls a Nexus task and serves the operation the application declared. The bundle registers it as `durable_nexus` once a handler exists |
