@@ -13,15 +13,11 @@ use Gplanchat\Durable\WorkflowNamespace;
  */
 final class TemporalConnection
 {
-    public const DEFAULT_WORKFLOW_TYPE = 'DurableJournal';
-
     public const DEFAULT_JOURNAL_TASK_QUEUE = 'durable-journal';
 
     public const DEFAULT_WORKFLOW_TASK_QUEUE = 'durable-workflows';
 
     public const DEFAULT_ACTIVITY_TASK_QUEUE = 'durable-activities';
-
-    public const DEFAULT_SIGNAL_APPEND = 'durableAppend';
 
     public const DEFAULT_QUERY_READ_STREAM = 'readStream';
 
@@ -71,8 +67,6 @@ final class TemporalConnection
         public readonly string $target,
         WorkflowNamespace|string $namespace,
         TaskQueue|string|null $journalTaskQueue = null,
-        public readonly string $workflowType = self::DEFAULT_WORKFLOW_TYPE,
-        public readonly string $signalAppend = self::DEFAULT_SIGNAL_APPEND,
         public readonly string $queryReadStream = self::DEFAULT_QUERY_READ_STREAM,
         public readonly string $identity = 'durable-temporal-bridge-php',
         public readonly bool $tls = false,
@@ -138,13 +132,6 @@ final class TemporalConnection
         return ['authorization' => ['Bearer ' . $key], 'temporal-namespace' => [$this->namespace->name()]];
     }
 
-    public function journalWorkflowId(string $executionId): string
-    {
-        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? 'invalid';
-
-        return 'durable-journal-' . substr($safe, 0, 900);
-    }
-
     /**
      * One DSN, whose scheme names the wire and the encryption:
      *
@@ -158,7 +145,7 @@ final class TemporalConnection
      * {@code temporal://} named as the replacement.
      *
      * Typical query parameters: {@code namespace}, {@code identity}, {@code task_queue} or
-     * {@code journal_task_queue}, {@code workflow_type}, {@code workflow_task_queue},
+     * {@code journal_task_queue}, {@code workflow_task_queue},
      * {@code activity_task_queue}, {@code nexus_task_queue}, and {@code transport} to override
      * the choice the scheme implies (auto, grpc, grpc-curl, guzzle, http). Over TLS, {@code ca},
      * {@code cert} and {@code key} name PEM files, and {@code api_key} is sent as a bearer token.
@@ -177,6 +164,9 @@ final class TemporalConnection
         [$schemeTransport, $schemeTls] = self::SCHEMES[$scheme];
 
         parse_str($parts['query'] ?? '', $q);
+        if (\array_key_exists('workflow_type', $q)) {
+            throw new \InvalidArgumentException('The workflow_type DSN key is no longer accepted: it named the journal workflow, which Durable no longer starts (#594). Remove it; each run carries its own workflow type.');
+        }
         foreach (array_keys($q) as $key) {
             if (!\in_array($key, self::QUERY_KEYS, true)) {
                 throw new \InvalidArgumentException(\sprintf('Unknown Temporal DSN query key "%s", expected one of: %s.', $key, implode(', ', self::QUERY_KEYS)));
@@ -198,8 +188,6 @@ final class TemporalConnection
             ? $q['journal_task_queue']
             : (\is_string($q['task_queue'] ?? null) ? $q['task_queue'] : 'durable-journal');
 
-        $workflowType = \is_string($q['workflow_type'] ?? null) ? $q['workflow_type'] : self::DEFAULT_WORKFLOW_TYPE;
-
         $workflowTaskQueue = \is_string($q['workflow_task_queue'] ?? null) ? $q['workflow_task_queue'] : self::DEFAULT_WORKFLOW_TASK_QUEUE;
         $activityTaskQueue = \is_string($q['activity_task_queue'] ?? null) ? $q['activity_task_queue'] : self::DEFAULT_ACTIVITY_TASK_QUEUE;
         $nexusTaskQueue = \is_string($q['nexus_task_queue'] ?? null) ? $q['nexus_task_queue'] : null;
@@ -208,8 +196,6 @@ final class TemporalConnection
             target: $target,
             namespace: $namespace,
             journalTaskQueue: $journalTaskQueue,
-            workflowType: $workflowType,
-            signalAppend: self::DEFAULT_SIGNAL_APPEND,
             queryReadStream: self::DEFAULT_QUERY_READ_STREAM,
             identity: $identity,
             tls: $tls,
@@ -227,8 +213,8 @@ final class TemporalConnection
 
     /** Every key {@see fromDsn} reads; any other is refused rather than ignored. */
     private const QUERY_KEYS = [
-        'namespace', 'identity', 'task_queue', 'journal_task_queue', 'workflow_type',
-        'workflow_task_queue', 'activity_task_queue', 'nexus_task_queue', 'transport', 'tls',
+        'namespace', 'identity', 'task_queue', 'journal_task_queue', 'workflow_task_queue',
+        'activity_task_queue', 'nexus_task_queue', 'transport', 'tls',
         'ca', 'cert', 'key', 'api_key',
     ];
 

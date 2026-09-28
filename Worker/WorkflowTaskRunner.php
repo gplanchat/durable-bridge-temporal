@@ -157,6 +157,6 @@ final class WorkflowTaskRunner
             }
         }
 
-        return $this->connection->workflowType;
+        throw new \RuntimeException('The workflow task names no workflow type.');
     }
 }
