@@ -9,6 +9,7 @@ use Gplanchat\Bridge\Temporal\WorkflowClientInterface;
 use Gplanchat\Durable\Event\Event;
 use Gplanchat\Durable\Store\EventStoreInterface;
 use Temporal\Api\Common\V1\WorkflowExecution;
+use Temporal\Api\History\V1\HistoryEvent;
 
 /**
  * Temporal-backed read-through event store for the Symfony profiler / DataCollector.
@@ -85,10 +86,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      */
     private function streamFromTemporal(string $executionId): \Generator
     {
-        $execution = $this->buildExecution($executionId);
         $converter = new TemporalEventConverter($executionId);
 
-        foreach ($this->cursor->events($execution) as $historyEvent) {
+        foreach ($this->historyOf($executionId) as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
             if (null !== $durableEvent) {
                 yield $durableEvent;
@@ -101,10 +101,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      */
     private function streamFromTemporalWithTimestamps(string $executionId): \Generator
     {
-        $execution = $this->buildExecution($executionId);
         $converter = new TemporalEventConverter($executionId);
 
-        foreach ($this->cursor->events($execution) as $historyEvent) {
+        foreach ($this->historyOf($executionId) as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
             if (null !== $durableEvent) {
                 yield [
@@ -115,10 +114,25 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
         }
     }
 
-    private function buildExecution(string $executionId): WorkflowExecution
+    /**
+     * The history under Durable's workflow id for this execution, else under the execution id
+     * itself: that is where a child Durable starts lives, as the run catalog's `findRun()` knows.
+     *
+     * ponytail: one extra RPC for every child read, and a run Durable did not start whose workflow
+     * id equals an execution id is read too; a memo check, as `findRun()` does, if that ever bites.
+     *
+     * @return \Generator<int, HistoryEvent>
+     */
+    private function historyOf(string $executionId): \Generator
     {
-        return new WorkflowExecution([
-            'workflow_id' => $this->workflowClient->workflowId($executionId),
-        ]);
+        $found = false;
+        foreach ($this->cursor->events(new WorkflowExecution(['workflow_id' => $this->workflowClient->workflowId($executionId)])) as $historyEvent) {
+            $found = true;
+            yield $historyEvent;
+        }
+
+        if (!$found) {
+            yield from $this->cursor->events(new WorkflowExecution(['workflow_id' => $executionId]));
+        }
     }
 }
