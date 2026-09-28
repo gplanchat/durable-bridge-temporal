@@ -21,6 +21,7 @@
         "grpc/grpc": "^1.57",
         "php": ">=8.2",
         "psr/log": "^1.1 || ^2.0 || ^3.0",
+        "roadrunner-php/roadrunner-api-dto": "^1.17",
         "symfony/config": "^6.4 || ^7.0 || ^8.0",
         "symfony/dependency-injection": "^6.4 || ^7.0 || ^8.0",
         "symfony/http-kernel": "^6.4 || ^7.0 || ^8.0",
@@ -34,9 +35,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Gplanchat\\Bridge\\Temporal\\": "./",
-            "Temporal\\Api\\": "Api/",
-            "GPBMetadata\\Temporal\\": "Generated/GPBMetadata/Temporal/"
+            "Gplanchat\\Bridge\\Temporal\\": "./"
         }
     },
     "extra": {
