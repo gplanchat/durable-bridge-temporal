@@ -26,6 +26,12 @@ final readonly class TemporalWorkflowLifecycle implements WorkflowLifecycleInter
         private ?string $cancellationRequestedCause = null,
         /** An earlier task already raised the cancellation in the fiber. */
         private bool $cancellationAlreadyDelivered = false,
+        /**
+         * Words what a suspension waits on (#514); without one, nothing is recorded.
+         *
+         * @var (\Closure(Awaitable<mixed>): ?string)|null
+         */
+        private ?\Closure $describeWait = null,
     ) {}
 
     public function onBeforeRun(string $executionId): void
@@ -65,7 +71,11 @@ final readonly class TemporalWorkflowLifecycle implements WorkflowLifecycleInter
 
     public function onSuspended(string $executionId, Awaitable $pending): void
     {
-        // The command is already in the buffer; the task ends by handing it back.
+        // The command is already in the buffer; the task ends by handing it back, with what the
+        // run now waits on for the run list (#514).
+        if (null !== $this->describeWait) {
+            $this->commandBuffer->recordWait(($this->describeWait)($pending));
+        }
     }
 
     public function onContinuedAsNew(string $executionId, ContinueAsNewRequested $request): void

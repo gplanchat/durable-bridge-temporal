@@ -7,6 +7,9 @@ namespace Gplanchat\Bridge\Temporal\Worker;
 use Gplanchat\Bridge\Temporal\Codec\JsonPlainPayload;
 use Gplanchat\Bridge\Temporal\Journal\JournalExecutionIdResolver;
 use Gplanchat\Durable\ActivityCancellationReason;
+use Gplanchat\Durable\Event\ActivityScheduled;
+use Gplanchat\Durable\Event\Event;
+use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Exception\ActivitySupersededException;
 use Gplanchat\Durable\Exception\DurableActivityFailedException;
 use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
@@ -90,6 +93,15 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
 
     /** @var array<string, float> timer ID → scheduled-at */
     private array $timerScheduledAt = [];
+
+    /** @var array<string, float> timer ID → when it fires: its task's start plus its timeout, for the wait's wording (#514) */
+    private array $timerDeadlines = [];
+
+    /** When the latest WORKFLOW_TASK_STARTED began, the clock a timer's deadline counts from (#514). */
+    private ?float $taskStartedAt = null;
+
+    /** What the `durableWaitingOn` memo last said, so an unchanged wait is not written again (#514). */
+    private ?string $recordedWait = null;
 
     /** @var array<string, int> timer ID → eventId of its TIMER_FIRED (the journal order settles a deadline's verdict) */
     private array $firedTimerIds = [];
@@ -386,6 +398,25 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                     $this->scheduledTimerIds[] = $timerId;
                     $this->startedEventIdToTimerId[$eventId] = $timerId;
                     $this->timerScheduledAt[$timerId] = 0.0;
+                    // From the task that started it, as that task worded it: TIMER_STARTED is written later.
+                    $this->timerDeadlines[$timerId] = ($this->taskStartedAt ?? (float) ($event->getEventTime()?->getSeconds() ?? 0)) + (float) ($attr->getStartToFireTimeout()?->getSeconds() ?? 0);
+                }
+                break;
+
+            case EventType::EVENT_TYPE_WORKFLOW_TASK_STARTED:
+                $this->taskStartedAt = (float) ($event->getEventTime()?->getSeconds() ?? 0);
+                break;
+
+            case EventType::EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED:
+                $field = $event->getWorkflowPropertiesModifiedEventAttributes()?->getUpsertedMemo()?->getFields()[JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON] ?? null;
+                if (null !== $field) {
+                    try {
+                        $wait = JsonPlainPayload::decode($field);
+                    } catch (\JsonException) {
+                        // Another client's memo under our key: it says nothing, and is overwritten.
+                        $wait = null;
+                    }
+                    $this->recordedWait = \is_string($wait) ? $wait : null;
                 }
                 break;
 
@@ -794,6 +825,35 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
      * Expected by {@code RequestCancelActivityTaskCommandAttributes::scheduledEventId}: an id
      * that matches no event makes the server reject the task.
      */
+    public function taskStartedAt(): ?float
+    {
+        return $this->taskStartedAt;
+    }
+
+    public function recordedWait(): ?string
+    {
+        return $this->recordedWait;
+    }
+
+    /**
+     * The activities and timers this history scheduled, as the core journal records them: what
+     * {@see \Gplanchat\Durable\Observation\WaitReason} reads to word a wait (#514).
+     *
+     * @return list<Event>
+     */
+    public function waitJournal(string $executionId): array
+    {
+        $events = [];
+        foreach ($this->activityNames as $activityId => $name) {
+            $events[] = new ActivityScheduled($executionId, $activityId, $name, []);
+        }
+        foreach ($this->timerDeadlines as $timerId => $deadline) {
+            $events[] = new TimerScheduled($executionId, $timerId, $deadline);
+        }
+
+        return $events;
+    }
+
     public function scheduledEventIdForActivity(string $activityId): ?int
     {
         return $this->activityIdToScheduledEventId[$activityId] ?? null;

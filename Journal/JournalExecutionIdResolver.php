@@ -14,6 +14,8 @@ final class JournalExecutionIdResolver
 {
     public const MEMO_KEY_DURABLE_EXECUTION_ID = 'durableExecutionId';
 
+    /** What a suspended run last waited on, in the core's words (#514), upserted at each suspension. */
+    public const MEMO_KEY_DURABLE_WAITING_ON = 'durableWaitingOn';
 
     public static function durableExecutionIdFromStartedAttributes(
         \Temporal\Api\History\V1\WorkflowExecutionStartedEventAttributes $attr,
