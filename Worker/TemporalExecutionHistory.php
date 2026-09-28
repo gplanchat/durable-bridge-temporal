@@ -94,8 +94,11 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var array<string, float> timer ID → scheduled-at */
     private array $timerScheduledAt = [];
 
-    /** @var array<string, float> timer ID → when it fires: its start plus its timeout, for the wait's wording (#514) */
+    /** @var array<string, float> timer ID → when it fires: its task's start plus its timeout, for the wait's wording (#514) */
     private array $timerDeadlines = [];
+
+    /** When the latest WORKFLOW_TASK_STARTED began, the clock a timer's deadline counts from (#514). */
+    private ?float $taskStartedAt = null;
 
     /** What the `durableWaitingOn` memo last said, so an unchanged wait is not written again (#514). */
     private ?string $recordedWait = null;
@@ -395,8 +398,13 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                     $this->scheduledTimerIds[] = $timerId;
                     $this->startedEventIdToTimerId[$eventId] = $timerId;
                     $this->timerScheduledAt[$timerId] = 0.0;
-                    $this->timerDeadlines[$timerId] = (float) ($event->getEventTime()?->getSeconds() ?? 0) + (float) ($attr->getStartToFireTimeout()?->getSeconds() ?? 0);
+                    // From the task that started it, as that task worded it: TIMER_STARTED is written later.
+                    $this->timerDeadlines[$timerId] = ($this->taskStartedAt ?? (float) ($event->getEventTime()?->getSeconds() ?? 0)) + (float) ($attr->getStartToFireTimeout()?->getSeconds() ?? 0);
                 }
+                break;
+
+            case EventType::EVENT_TYPE_WORKFLOW_TASK_STARTED:
+                $this->taskStartedAt = (float) ($event->getEventTime()?->getSeconds() ?? 0);
                 break;
 
             case EventType::EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED:
@@ -817,6 +825,11 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
      * Expected by {@code RequestCancelActivityTaskCommandAttributes::scheduledEventId}: an id
      * that matches no event makes the server reject the task.
      */
+    public function taskStartedAt(): ?float
+    {
+        return $this->taskStartedAt;
+    }
+
     public function recordedWait(): ?string
     {
         return $this->recordedWait;
