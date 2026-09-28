@@ -16,6 +16,7 @@ use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
+use Gplanchat\Durable\Port\History\ChildWorkflowOutcome;
 use Gplanchat\Durable\Port\History\SlotOutcome;
 use Gplanchat\Durable\Port\History\TimerOutcome;
 use Gplanchat\Durable\Port\WorkflowHistorySourceInterface;
@@ -698,7 +699,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return $this->sideEffects[$slot] ?? null;
     }
 
-    public function findChildWorkflowForSlot(int $slot): ?array
+    public function findChildWorkflowForSlot(int $slot): ?ChildWorkflowOutcome
     {
         $childId = $this->childExecutionIds[$slot] ?? null;
         if (null === $childId) {
@@ -711,14 +712,10 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         }
 
         if ($outcome['failed']) {
-            return [
-                'childExecutionId' => $childId,
-                'result' => null,
-                'failed' => new \RuntimeException('Child workflow failed'),
-            ];
+            return new ChildWorkflowOutcome($childId, null, new \RuntimeException('Child workflow failed'));
         }
 
-        return ['childExecutionId' => $childId, 'result' => $outcome['result'], 'failed' => null];
+        return new ChildWorkflowOutcome($childId, $outcome['result']);
     }
 
     public function findScheduledChildExecutionId(int $slot): ?string
