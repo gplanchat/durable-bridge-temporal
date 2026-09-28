@@ -20,6 +20,7 @@ use Temporal\Api\Common\V1\WorkflowType;
 use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\History\V1\HistoryEvent;
 use Temporal\Api\Taskqueue\V1\TaskQueue;
+use Temporal\Api\Workflowservice\V1\DescribeWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\SignalWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\StartWorkflowExecutionRequest;
 
@@ -33,6 +34,8 @@ use Temporal\Api\Workflowservice\V1\StartWorkflowExecutionRequest;
  */
 final class WorkflowClient implements WorkflowClientInterface
 {
+    private const GRPC_NOT_FOUND = 5;
+
     public function __construct(
         private readonly WorkflowServiceClientInterface $client,
         private readonly TemporalConnection $settings,
@@ -53,7 +56,7 @@ final class WorkflowClient implements WorkflowClientInterface
         string $executionId,
         ?WorkflowStartOptions $options = null,
     ): string {
-        $workflowId = $this->workflowId($executionId);
+        $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
         return $workflowId;
@@ -89,7 +92,7 @@ final class WorkflowClient implements WorkflowClientInterface
         string $executionId,
         ?WorkflowStartOptions $options = null,
     ): mixed {
-        $workflowId = $this->workflowId($executionId);
+        $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
         return $this->waitForCompletion($workflowId);
@@ -256,21 +259,77 @@ final class WorkflowClient implements WorkflowClientInterface
     }
 
     /**
-     * Computes the Temporal workflow ID for a given Durable execution ID.
+     * The workflow id a run of this execution lives under, to address it: signal, update, query,
+     * history. Starts use {@see workflowIdOf()}, never this.
+     *
+     * A run started before #566 may still live under its {@see legacyWorkflowIdOf()}: that one is
+     * taken only when the new id holds no run and the old one holds a run started with this very
+     * execution id, per its memo. Ids the mapping leaves alone never pay the lookup. That fallback
+     * goes in 0.1.0-beta1.
      */
     public function workflowId(string $executionId): string
     {
-        return self::workflowIdOf($executionId);
+        $current = self::workflowIdOf($executionId);
+        $legacy = self::legacyWorkflowIdOf($executionId);
+        if (null === $legacy || null !== $this->describedExecutionId($current)) {
+            return $current;
+        }
+
+        return $executionId === $this->describedExecutionId($legacy) ? $legacy : $current;
     }
 
     /**
-     * The same, for a reader that holds no client: the run catalog finds a run by it (#514).
+     * The workflow id a run of this execution starts under, one per execution id (#566).
+     *
+     * An id made only of `[a-zA-Z0-9._-]`, of at most 900 characters, keeps `durable-<id>`: UUIDs and
+     * ULIDs do, so their runs keep the id they were started under. Any other id keeps a sanitised
+     * prefix, then `~`, which sanitisation never writes, then the SHA-256 of the whole id: two ids
+     * never share one, and a hashed id never spells a kept one. At most 908 characters, as before.
      */
     public static function workflowIdOf(string $executionId): string
     {
-        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? 'invalid';
+        $safe = preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? '';
+        if ('' !== $executionId && $safe === $executionId && \strlen($executionId) <= 900) {
+            return 'durable-' . $executionId;
+        }
 
-        return 'durable-' . substr($safe, 0, 900);
+        return 'durable-' . substr($safe, 0, 835) . '~' . hash('sha256', $executionId);
+    }
+
+    /**
+     * The workflow id the lossy mapping before #566 gave this execution, when it differs from
+     * {@see workflowIdOf()}; `null` when the two agree.
+     *
+     * @deprecated the fallback to the legacy workflow id goes in 0.1.0-beta1
+     */
+    public static function legacyWorkflowIdOf(string $executionId): ?string
+    {
+        $legacy = 'durable-' . substr(preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? '', 0, 900);
+
+        return $legacy === self::workflowIdOf($executionId) ? null : $legacy;
+    }
+
+    /**
+     * The execution id the run under this workflow id was started with, per its memo; `null` when
+     * no run lives there, or one Durable did not start.
+     */
+    private function describedExecutionId(string $workflowId): ?string
+    {
+        $request = new DescribeWorkflowExecutionRequest();
+        $request->setNamespace($this->settings->namespace->name());
+        $request->setExecution(new WorkflowExecution(['workflow_id' => $workflowId]));
+
+        try {
+            $info = $this->client->DescribeWorkflowExecution($request, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US])->getWorkflowExecutionInfo();
+        } catch (\RuntimeException $failure) {
+            if (self::GRPC_NOT_FOUND === $failure->getCode()) {
+                return null;
+            }
+
+            throw $failure;
+        }
+
+        return JournalExecutionIdResolver::fromMemo($info?->getMemo()) ?? (null === $info ? null : '');
     }
 
     /** @param array<string, mixed> $payload */

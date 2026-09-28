@@ -206,8 +206,11 @@ final class TemporalEventConverter
                 }
                 $timerId = (string) $attr->getTimerId();
                 $this->startedEventIdToTimerId[$eventId] = $timerId;
+                // `scheduledAt()` is the deadline on every store, not when the timer was started (#586).
+                $timeout = $attr->getStartToFireTimeout();
+                $deadline = $ts + (null === $timeout ? 0.0 : (float) $timeout->getSeconds() + (float) $timeout->getNanos() / 1_000_000_000.0);
 
-                return new TimerScheduled($this->executionId, $timerId, $ts);
+                return new TimerScheduled($this->executionId, $timerId, $deadline);
 
             case EventType::EVENT_TYPE_TIMER_FIRED:
                 $attr = $event->getTimerFiredEventAttributes();
