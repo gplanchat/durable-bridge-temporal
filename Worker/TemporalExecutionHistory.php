@@ -17,6 +17,7 @@ use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
 use Gplanchat\Durable\Port\History\ChildWorkflowOutcome;
+use Gplanchat\Durable\Port\History\SideEffectOutcome;
 use Gplanchat\Durable\Port\History\SlotOutcome;
 use Gplanchat\Durable\Port\History\TimerOutcome;
 use Gplanchat\Durable\Port\WorkflowHistorySourceInterface;
@@ -694,9 +695,9 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return \array_key_exists($slot, $this->sideEffects);
     }
 
-    public function findSideEffectForSlot(int $slot): mixed
+    public function findSideEffectForSlot(int $slot): ?SideEffectOutcome
     {
-        return $this->sideEffects[$slot] ?? null;
+        return \array_key_exists($slot, $this->sideEffects) ? new SideEffectOutcome($this->sideEffects[$slot]) : null;
     }
 
     public function findChildWorkflowForSlot(int $slot): ?ChildWorkflowOutcome
