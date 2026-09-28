@@ -104,10 +104,10 @@ final class WorkflowTaskRunner
             $commandBuffer,
             $history->cancellationRequestedCause(),
             $history->cancellationAlreadyDelivered(),
-            // The core's words, read from what this task scheduled (#514).
-            static function (Awaitable $pending) use ($commandBuffer, $executionId): ?string {
+            // The core's words, read from what the history and this task scheduled (#514).
+            static function (Awaitable $pending) use ($history, $commandBuffer, $executionId): ?string {
                 $journal = new InMemoryEventStore();
-                foreach ($commandBuffer->waitJournal() as $event) {
+                foreach ([...$history->waitJournal($executionId), ...$commandBuffer->waitJournal()] as $event) {
                     $journal->append($event);
                 }
 
