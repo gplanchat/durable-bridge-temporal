@@ -97,6 +97,9 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var array<string, float> timer ID → when it fires: its start plus its timeout, for the wait's wording (#514) */
     private array $timerDeadlines = [];
 
+    /** What the `durableWaitingOn` memo last said, so an unchanged wait is not written again (#514). */
+    private ?string $recordedWait = null;
+
     /** @var array<string, int> timer ID → eventId of its TIMER_FIRED (the journal order settles a deadline's verdict) */
     private array $firedTimerIds = [];
 
@@ -393,6 +396,19 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                     $this->startedEventIdToTimerId[$eventId] = $timerId;
                     $this->timerScheduledAt[$timerId] = 0.0;
                     $this->timerDeadlines[$timerId] = (float) ($event->getEventTime()?->getSeconds() ?? 0) + (float) ($attr->getStartToFireTimeout()?->getSeconds() ?? 0);
+                }
+                break;
+
+            case EventType::EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED:
+                $field = $event->getWorkflowPropertiesModifiedEventAttributes()?->getUpsertedMemo()?->getFields()[JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON] ?? null;
+                if (null !== $field) {
+                    try {
+                        $wait = JsonPlainPayload::decode($field);
+                    } catch (\JsonException) {
+                        // Another client's memo under our key: it says nothing, and is overwritten.
+                        $wait = null;
+                    }
+                    $this->recordedWait = \is_string($wait) ? $wait : null;
                 }
                 break;
 
@@ -801,6 +817,11 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
      * Expected by {@code RequestCancelActivityTaskCommandAttributes::scheduledEventId}: an id
      * that matches no event makes the server reject the task.
      */
+    public function recordedWait(): ?string
+    {
+        return $this->recordedWait;
+    }
+
     /**
      * The activities and timers this history scheduled, as the core journal records them: what
      * {@see \Gplanchat\Durable\Observation\WaitReason} reads to word a wait (#514).

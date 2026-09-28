@@ -445,6 +445,11 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
      */
     public function recordWait(?string $waitingOn): void
     {
+        // Every suspending task would otherwise add a history event, a signal-driven run above all.
+        if (null !== $this->history && $this->history->recordedWait() === $waitingOn) {
+            return;
+        }
+
         $memo = new Memo();
         $memo->getFields()[JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON] = JsonPlainPayload::encode($waitingOn);
 
