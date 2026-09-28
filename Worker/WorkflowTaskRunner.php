@@ -12,7 +12,7 @@ use Gplanchat\Durable\ExecutionRuntime;
 use Gplanchat\Durable\Observation\WaitReason;
 use Gplanchat\Durable\RegistryActivityExecutor;
 use Gplanchat\Durable\Store\InMemoryEventStore;
-use Gplanchat\Durable\Store\NullEventStore;
+use Gplanchat\Durable\Store\NoLocalJournalEventStore;
 use Gplanchat\Durable\Transport\NoopActivityTransport;
 use Gplanchat\Durable\Worker\WorkflowFiberDriver;
 use Gplanchat\Durable\Workflow\WorkflowDefinitionLoader;
@@ -45,7 +45,7 @@ final class WorkflowTaskRunner
         private readonly ?WorkflowDefinitionLoader $workflowDefinitionLoader = null,
     ) {
         $this->runtime = new ExecutionRuntime(
-            new NullEventStore(),
+            new NoLocalJournalEventStore('Temporal'),
             new NoopActivityTransport(),
             new RegistryActivityExecutor(),
             0,
