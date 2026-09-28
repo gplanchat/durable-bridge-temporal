@@ -227,15 +227,18 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
 
         $type = $info->getType();
         $workflowId = (string) $execution->getWorkflowId();
+        $status = self::statusOf($info);
 
         return new WorkflowRunDescription(
             runId: $runId,
             workflowName: null !== $type ? (string) $type->getName() : 'UnknownWorkflow',
-            status: self::statusOf($info),
+            status: $status,
             startedAt: self::toDateTime($info->getStartTime()),
             endedAt: self::toDateTime($info->getCloseTime()),
             groupId: '' === $workflowId ? null : $workflowId,
             executionId: self::executionIdOf($info) ?? ('' === $workflowId ? $runId : $workflowId),
+            // The memo outlives the run: an ended run waits for nothing.
+            waitingOn: $status->isRunning() ? self::memoString($info, JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON) : null,
         );
     }
 
@@ -245,16 +248,24 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
      */
     private static function executionIdOf(WorkflowExecutionInfo $info): ?string
     {
-        $field = $info->getMemo()?->getFields()[JournalExecutionIdResolver::MEMO_KEY_DURABLE_EXECUTION_ID] ?? null;
+        return self::memoString($info, JournalExecutionIdResolver::MEMO_KEY_DURABLE_EXECUTION_ID);
+    }
+
+    /**
+     * A memo field Durable wrote as a JSON string, or `null` when absent, empty or not ours.
+     */
+    private static function memoString(WorkflowExecutionInfo $info, string $key): ?string
+    {
+        $field = $info->getMemo()?->getFields()[$key] ?? null;
 
         try {
-            $executionId = null === $field ? null : JsonPlainPayload::decode($field);
+            $value = null === $field ? null : JsonPlainPayload::decode($field);
         } catch (\JsonException) {
             // Another client's memo: it names nothing, and must not take the page down with it.
             return null;
         }
 
-        return \is_string($executionId) && '' !== $executionId ? $executionId : null;
+        return \is_string($value) && '' !== $value ? $value : null;
     }
 
     /**
