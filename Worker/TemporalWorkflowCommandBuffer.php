@@ -310,6 +310,14 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     }
 
     /**
+     * Delegated to the server (DUR051), not refused: every update reaches this. The server writes
+     * UPDATE_ACCEPTED and UPDATE_COMPLETED from the protocol messages the worker hands back
+     * ({@see UpdateProtocol}); a worker that journalled as well would record each update twice.
+     * `WorkflowUpdateTest::testTheServerRecordsTheUpdateTheWorkerHandled()` shows the record.
+     */
+    public function recordUpdateHandled(string $updateName, array $arguments, mixed $result, ?FailureEnvelope $failure): void {}
+
+    /**
      * COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK.
      *
      * `scheduledEventId` must designate the real ACTIVITY_TASK_SCHEDULED event: it used to be
@@ -323,13 +331,6 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
      * already pending operation is cancelled), and predicting it would mean reproducing the
      * server's id assignment from `startedEventId`.
      */
-    public function recordUpdateHandled(string $updateName, array $arguments, mixed $result, ?FailureEnvelope $failure): void
-    {
-        // Deliberately empty: it is the **server** that writes UPDATE_ACCEPTED and
-        // UPDATE_COMPLETED, from the protocol messages the worker hands back to it
-        // ({@see UpdateProtocol}). A worker that journalled as well would duplicate the work.
-    }
-
     public function cancelActivity(string $activityId, string $reason): void
     {
         $scheduledEventId = $this->history?->scheduledEventIdForActivity($activityId);
