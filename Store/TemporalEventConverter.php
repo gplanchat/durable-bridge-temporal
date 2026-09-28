@@ -146,6 +146,12 @@ final class TemporalEventConverter
                     }
                 }
 
+                // Durable's worker writes an envelope (TemporalActivityScheduleInput): the
+                // arguments are its `payload`, the scheduling metadata its `metadata`.
+                if (isset($input['activityId']) && \is_array($input['payload'] ?? null)) {
+                    return new ActivityScheduled($this->executionId, $activityId, $activityType, $input['payload'], \is_array($input['metadata'] ?? null) ? $input['metadata'] : []);
+                }
+
                 return new ActivityScheduled($this->executionId, $activityId, $activityType, $input);
 
             case EventType::EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
