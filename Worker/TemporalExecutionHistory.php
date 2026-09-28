@@ -16,6 +16,7 @@ use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
+use Gplanchat\Durable\Port\History\CancellationDelivery;
 use Gplanchat\Durable\Port\History\ChildWorkflowOutcome;
 use Gplanchat\Durable\Port\History\RecordedMessage;
 use Gplanchat\Durable\Port\History\SideEffectOutcome;
@@ -864,12 +865,12 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return null !== $this->cancellationDeliveredAt;
     }
 
-    public function cancellationDelivery(): ?array
+    public function cancellationDelivery(): ?CancellationDelivery
     {
-        return null === $this->cancellationDeliveredAt ? null : [
-            'position' => $this->cancellationDeliveredAt,
-            'targets' => array_map(strval(...), array_keys($this->cancellationDeliveredTargets)),
-        ];
+        return null === $this->cancellationDeliveredAt ? null : new CancellationDelivery(
+            $this->cancellationDeliveredAt,
+            array_map(strval(...), array_keys($this->cancellationDeliveredTargets)),
+        );
     }
 
     /** @return array<string, mixed> */
