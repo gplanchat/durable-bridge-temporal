@@ -17,6 +17,25 @@ final class JournalExecutionIdResolver
     /** What a suspended run last waited on, in the core's words (#514), upserted at each suspension. */
     public const MEMO_KEY_DURABLE_WAITING_ON = 'durableWaitingOn';
 
+    /**
+     * The execution id a memo carries, or `null` when it carries none Durable wrote.
+     */
+    public static function fromMemo(?\Temporal\Api\Common\V1\Memo $memo): ?string
+    {
+        $fields = $memo?->getFields();
+        if (null === $fields || !$fields->offsetExists(self::MEMO_KEY_DURABLE_EXECUTION_ID)) {
+            return null;
+        }
+
+        try {
+            $decoded = JsonPlainPayload::decode($fields->offsetGet(self::MEMO_KEY_DURABLE_EXECUTION_ID));
+        } catch (\JsonException) {
+            return null;
+        }
+
+        return \is_string($decoded) && '' !== $decoded ? $decoded : null;
+    }
+
     public static function durableExecutionIdFromStartedAttributes(
         \Temporal\Api\History\V1\WorkflowExecutionStartedEventAttributes $attr,
     ): string {
