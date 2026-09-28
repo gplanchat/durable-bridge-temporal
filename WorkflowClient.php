@@ -20,6 +20,7 @@ use Temporal\Api\Common\V1\WorkflowType;
 use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\History\V1\HistoryEvent;
 use Temporal\Api\Taskqueue\V1\TaskQueue;
+use Temporal\Api\Workflowservice\V1\DescribeWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\SignalWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\StartWorkflowExecutionRequest;
 
@@ -33,6 +34,8 @@ use Temporal\Api\Workflowservice\V1\StartWorkflowExecutionRequest;
  */
 final class WorkflowClient implements WorkflowClientInterface
 {
+    private const GRPC_NOT_FOUND = 5;
+
     public function __construct(
         private readonly WorkflowServiceClientInterface $client,
         private readonly TemporalConnection $settings,
@@ -257,11 +260,22 @@ final class WorkflowClient implements WorkflowClientInterface
 
     /**
      * The workflow id a run of this execution lives under, to address it: signal, update, query,
-     * history. Starts use {@see workflowIdOf()}.
+     * history. Starts use {@see workflowIdOf()}, never this.
+     *
+     * A run started before #566 may still live under its {@see legacyWorkflowIdOf()}: that one is
+     * taken only when the new id holds no run and the old one holds a run started with this very
+     * execution id, per its memo. Ids the mapping leaves alone never pay the lookup. That fallback
+     * goes in 0.1.0-beta1.
      */
     public function workflowId(string $executionId): string
     {
-        return self::workflowIdOf($executionId);
+        $current = self::workflowIdOf($executionId);
+        $legacy = self::legacyWorkflowIdOf($executionId);
+        if (null === $legacy || null !== $this->describedExecutionId($current)) {
+            return $current;
+        }
+
+        return $executionId === $this->describedExecutionId($legacy) ? $legacy : $current;
     }
 
     /**
@@ -293,6 +307,29 @@ final class WorkflowClient implements WorkflowClientInterface
         $legacy = 'durable-' . substr(preg_replace('/[^a-zA-Z0-9._-]/', '-', $executionId) ?? '', 0, 900);
 
         return $legacy === self::workflowIdOf($executionId) ? null : $legacy;
+    }
+
+    /**
+     * The execution id the run under this workflow id was started with, per its memo; `null` when
+     * no run lives there, or one Durable did not start.
+     */
+    private function describedExecutionId(string $workflowId): ?string
+    {
+        $request = new DescribeWorkflowExecutionRequest();
+        $request->setNamespace($this->settings->namespace->name());
+        $request->setExecution(new WorkflowExecution(['workflow_id' => $workflowId]));
+
+        try {
+            $info = $this->client->DescribeWorkflowExecution($request, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US])->getWorkflowExecutionInfo();
+        } catch (\RuntimeException $failure) {
+            if (self::GRPC_NOT_FOUND === $failure->getCode()) {
+                return null;
+            }
+
+            throw $failure;
+        }
+
+        return JournalExecutionIdResolver::fromMemo($info?->getMemo()) ?? (null === $info ? null : '');
     }
 
     /** @param array<string, mixed> $payload */
