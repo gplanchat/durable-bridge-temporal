@@ -65,6 +65,14 @@ interface WorkflowServiceClientInterface
     public function ListWorkflowExecutions(Ws\ListWorkflowExecutionsRequest $request, array $metadata = [], array $options = []): Ws\ListWorkflowExecutionsResponse;
 
     /**
+     * The server's version and capabilities: what a query may use depends on it (#523).
+     *
+     * @param Metadata $metadata
+     * @param Options  $options
+     */
+    public function GetSystemInfo(Ws\GetSystemInfoRequest $request, array $metadata = [], array $options = []): Ws\GetSystemInfoResponse;
+
+    /**
      * @param Metadata $metadata
      * @param Options  $options
      */

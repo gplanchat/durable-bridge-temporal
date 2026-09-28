@@ -20,6 +20,7 @@ final class JsonGatewayRoutes
         'CountActivityExecutions' => ['GET', '/api/v1/namespaces/{namespace}/activity-count'],
         'DescribeActivityExecution' => ['GET', '/api/v1/namespaces/{namespace}/activities/{activity_id}'],
         'DescribeWorkflowExecution' => ['GET', '/api/v1/namespaces/{namespace}/workflows/{execution.workflow_id}'],
+        'GetSystemInfo' => ['GET', '/api/v1/system-info'],
         'GetWorkflowExecutionHistory' => ['GET', '/api/v1/namespaces/{namespace}/workflows/{execution.workflow_id}/history'],
         'ListActivityExecutions' => ['GET', '/api/v1/namespaces/{namespace}/activities'],
         'ListWorkflowExecutions' => ['GET', '/api/v1/namespaces/{namespace}/workflows'],

@@ -25,6 +25,7 @@ use Temporal\Api\Common\V1\WorkflowExecution;
 use Temporal\Api\Enums\V1\WorkflowExecutionStatus;
 use Temporal\Api\Workflow\V1\WorkflowExecutionInfo;
 use Temporal\Api\Workflowservice\V1\DescribeWorkflowExecutionRequest;
+use Temporal\Api\Workflowservice\V1\GetSystemInfoRequest;
 use Temporal\Api\Workflowservice\V1\ListWorkflowExecutionsRequest;
 
 /**
@@ -43,6 +44,12 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
 {
     private const BACKEND = 'Temporal';
 
+    /** The first server version whose visibility queries accept STARTS_WITH (jane measured, #523). */
+    private const FIRST_WITH_STARTS_WITH = '1.23.0';
+
+    /** Whether the server accepts STARTS_WITH, once asked. */
+    private ?bool $startsWith = null;
+
     /** Server round trips a prefixed page may take to fill up (#557). */
     private const MAX_FILL_ROUNDS = 5;
 
@@ -55,17 +62,25 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
     ) {}
 
     /**
-     * The filters read Durable's search attributes, which only a host with the switch on writes.
+     * The filters read Durable's search attributes, which only a host with the switch on writes. The
+     * prefix filter also needs STARTS_WITH, which servers before 1.23.0 reject (#523): the server's
+     * version is asked once, and a server that names none is taken as current.
      */
-    public function canFilterRuns(): bool
+    public function canFilterRuns(?WorkflowRunFilter $filter = null): bool
     {
-        return $this->connection->searchAttributes;
+        if (!$this->connection->searchAttributes) {
+            return false;
+        }
+
+        return null === $filter?->executionIdPrefix || $this->serverHasStartsWith();
     }
 
     public function listRuns(?WorkflowRunStatus $status = null, ?string $cursor = null, int $limit = 20, ?WorkflowRunFilter $filter = null): WorkflowRunPage
     {
-        if (null !== $filter && !$filter->isEmpty() && !$this->canFilterRuns()) {
-            throw new RunFilterUnavailableException('Filtering Temporal runs reads Durable\'s search attributes: register them on the namespace, then turn durable.temporal.search_attributes on.');
+        if (null !== $filter && !$filter->isEmpty() && !$this->canFilterRuns($filter)) {
+            throw new RunFilterUnavailableException($this->connection->searchAttributes
+                ? 'Filtering Temporal runs by execution-id prefix needs Temporal Server 1.23.0 or later, the first that accepts STARTS_WITH.'
+                : 'Filtering Temporal runs reads Durable\'s search attributes: register them on the namespace, then turn durable.temporal.search_attributes on.');
         }
         $request = new ListWorkflowExecutionsRequest();
         $request->setNamespace($this->connection->namespace->name());
@@ -204,6 +219,16 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
             \sprintf('Connected to Temporal namespace "%s".', $this->connection->namespace->name()),
             $checkedAt,
         );
+    }
+
+    private function serverHasStartsWith(): bool
+    {
+        if (null === $this->startsWith) {
+            $version = (string) $this->client->GetSystemInfo(new GetSystemInfoRequest(), [], ['timeout' => TemporalGrpcTimeouts::SHORT_US])->getServerVersion();
+            $this->startsWith = '' === $version || version_compare(ltrim($version, 'v'), self::FIRST_WITH_STARTS_WITH, '>=');
+        }
+
+        return $this->startsWith;
     }
 
     private static function executionIdAttribute(WorkflowExecutionInfo $info): string
