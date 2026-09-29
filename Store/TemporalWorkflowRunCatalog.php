@@ -137,17 +137,17 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
      * A run Durable did not start is listed under its own workflow id, and found by it second. An
      * execution the server does not know is not found; any other failure is not passed off as one.
      */
-    public function findRun(ExecutionId|string $executionId): ?WorkflowRunDescription
+    public function findRun(ExecutionId $executionId): ?WorkflowRunDescription
     {
-        $executionId = (string) $executionId;
         // Durable's workflow id, then the lossy one a run started before #566 may still live under
         // (gone in 0.1.0-beta1), then the id itself, as a child or a foreign run has. A run counts
         // only if it was started with this execution id: the legacy id is shared by several.
-        $candidates = [WorkflowClient::workflowIdOf($executionId), WorkflowClient::legacyWorkflowIdOf($executionId), $executionId];
+        $id = $executionId->toString();
+        $candidates = [WorkflowClient::workflowIdOf($id), WorkflowClient::legacyWorkflowIdOf($id), $id];
         foreach (array_unique(array_filter($candidates, static fn(?string $id): bool => null !== $id)) as $workflowId) {
             $info = $this->describeWorkflow($workflowId);
             $run = null === $info ? null : self::describe($info);
-            if (null !== $run && $executionId === $run->executionId) {
+            if (null !== $run && $id === $run->executionId) {
                 return $run;
             }
         }
