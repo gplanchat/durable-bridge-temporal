@@ -45,7 +45,7 @@ final class TemporalWorkflowResumeDispatcher implements WorkflowResumeDispatcher
         $this->workflowClient->startAsync($temporalType, $payload, $executionId);
 
         $this->executionTrace?->onWorkflowDispatchRequested(
-            $executionId->toString(),
+            $executionId,
             $workflowType,
             $payload,
             false,
