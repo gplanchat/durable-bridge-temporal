@@ -44,6 +44,11 @@ trait WorkflowRpcMethods
         return $this->call(__FUNCTION__, $request, Ws\GetSystemInfoResponse::class, $metadata, $options);
     }
 
+    public function DescribeTaskQueue(Ws\DescribeTaskQueueRequest $request, array $metadata = [], array $options = []): Ws\DescribeTaskQueueResponse
+    {
+        return $this->call(__FUNCTION__, $request, Ws\DescribeTaskQueueResponse::class, $metadata, $options);
+    }
+
     public function PollNexusTaskQueue(Ws\PollNexusTaskQueueRequest $request, array $metadata = [], array $options = []): Ws\PollNexusTaskQueueResponse
     {
         return $this->call(__FUNCTION__, $request, Ws\PollNexusTaskQueueResponse::class, $metadata, $options);
