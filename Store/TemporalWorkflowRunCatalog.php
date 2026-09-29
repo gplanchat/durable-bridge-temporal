@@ -16,11 +16,13 @@ use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Exception\RunFilterUnavailableException;
 use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Observation\BackendHealth;
+use Gplanchat\Durable\Observation\NexusOperationSummary;
 use Gplanchat\Durable\Observation\WorkflowRunDescription;
 use Gplanchat\Durable\Observation\WorkflowRunEvent;
 use Gplanchat\Durable\Observation\WorkflowRunFilter;
 use Gplanchat\Durable\Observation\WorkflowRunPage;
 use Gplanchat\Durable\Observation\WorkflowRunStatus;
+use Gplanchat\Durable\Port\NexusOperationCatalogInterface;
 use Gplanchat\Durable\Port\WorkflowRunCatalogInterface;
 use Temporal\Api\Common\V1\WorkflowExecution;
 use Temporal\Api\Enums\V1\WorkflowExecutionStatus;
@@ -41,7 +43,7 @@ use Temporal\Api\Workflowservice\V1\ListWorkflowExecutionsRequest;
  *
  * @see DUR006
  */
-final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
+final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface, NexusOperationCatalogInterface
 {
     private const BACKEND = 'Temporal';
 
@@ -187,6 +189,32 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
         }
 
         return (new TemporalRunHistoryReader($this->historyCursor))->read($workflowId, $run->runId);
+    }
+
+    /**
+     * The run's Nexus operations, read from the same history as {@see readHistory()} through the
+     * converter that gives the rest of Durable its domain events.
+     */
+    #[\Override]
+    public function readNexusOperations(WorkflowRunDescription $run): array
+    {
+        $workflowId = $run->groupId ?? '';
+        if (null === $this->historyCursor || '' === $workflowId || '' === $run->runId) {
+            return [];
+        }
+
+        $cursor = $this->historyCursor;
+        $converter = new TemporalEventConverter($run->executionId);
+        $execution = new WorkflowExecution(['workflow_id' => $workflowId, 'run_id' => $run->runId]);
+
+        return NexusOperationSummary::of((static function () use ($cursor, $converter, $execution): \Generator {
+            foreach ($cursor->events($execution) as $event) {
+                $converted = $converter->convert($event);
+                if (null !== $converted) {
+                    yield $converted;
+                }
+            }
+        })());
     }
 
     public function checkHealth(): BackendHealth
