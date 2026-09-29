@@ -74,9 +74,13 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
             return $local;
         }
 
+        // Streamed: a reason never decides whether an event converts, so no marker scan is needed.
+        $converter = new TemporalEventConverter($executionId->toString());
         $count = 0;
-        foreach ($this->streamFromTemporal($executionId) as $_) {
-            ++$count;
+        foreach ($this->historyOf($executionId) as $historyEvent) {
+            if (null !== $converter->convert($historyEvent)) {
+                ++$count;
+            }
         }
 
         return $count;
@@ -88,6 +92,8 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     private function streamFromTemporal(ExecutionId $executionId): \Generator
     {
         // The whole history first: a cancellation's reason is recorded after the cancellation (#701).
+        // ponytail: bounded by Temporal's history cap (51,200 events / 50 MB, more as protobuf
+        // objects); if it matters, buffer from a *_CANCELED event to the next WORKFLOW_TASK_SCHEDULED.
         $history = iterator_to_array($this->historyOf($executionId), false);
         $converter = TemporalEventConverter::forHistory($executionId->toString(), $history);
 
@@ -105,6 +111,8 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     private function streamFromTemporalWithTimestamps(ExecutionId $executionId): \Generator
     {
         // The whole history first: a cancellation's reason is recorded after the cancellation (#701).
+        // ponytail: bounded by Temporal's history cap (51,200 events / 50 MB, more as protobuf
+        // objects); if it matters, buffer from a *_CANCELED event to the next WORKFLOW_TASK_SCHEDULED.
         $history = iterator_to_array($this->historyOf($executionId), false);
         $converter = TemporalEventConverter::forHistory($executionId->toString(), $history);
 

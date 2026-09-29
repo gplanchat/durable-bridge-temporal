@@ -44,6 +44,10 @@ use Temporal\Api\History\V1\MarkerRecordedEventAttributes;
  * started-event-id → timer-id) while streaming a single execution's Temporal history.
  *
  * One instance per execution stream. Do not reuse across executions.
+ *
+ * Build it with {@see forHistory()} when the cancellation reasons matter: a converter built with
+ * `new` only knows the markers it has already seen, and reads a workflow-cancelled operation that
+ * was CANCELED before its marker as `race_superseded`.
  */
 final class TemporalEventConverter
 {
@@ -67,9 +71,12 @@ final class TemporalEventConverter
      * the first event. A server runs a workflow task's commands in turn, cancellations before the
      * marker, so an operation that was not running is CANCELED before the marker that explains it.
      *
-     * @param iterable<HistoryEvent> $history the whole history of the execution
+     * A list, not an iterable: the caller converts the same history afterwards, and a generator
+     * would be used up by then.
+     *
+     * @param list<HistoryEvent> $history the whole history of the execution
      */
-    public static function forHistory(string $executionId, iterable $history): self
+    public static function forHistory(string $executionId, array $history): self
     {
         $converter = new self($executionId);
         foreach ($history as $event) {
