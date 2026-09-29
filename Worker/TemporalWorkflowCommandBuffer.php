@@ -18,6 +18,7 @@ use Gplanchat\Durable\Duration as DurableDuration;
 use Gplanchat\Durable\Event\ActivityScheduled;
 use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Exception\UnsupportedByBackendException;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Failure\WorkflowFailureClassifier;
 use Gplanchat\Durable\Nexus\NexusEndpoint;
@@ -175,11 +176,12 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     }
 
     public function scheduleChildWorkflow(
-        string $childExecutionId,
+        ExecutionId|string $childExecutionId,
         string $childWorkflowType,
         array $input,
         ChildWorkflowOptions $options,
     ): void {
+        $childExecutionId = (string) $childExecutionId;
         $attrs = new \Temporal\Api\Command\V1\StartChildWorkflowExecutionCommandAttributes();
         $attrs->setWorkflowId($childExecutionId);
         $attrs->setWorkflowType(new \Temporal\Api\Common\V1\WorkflowType(['name' => $childWorkflowType]));
@@ -384,7 +386,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
      * {@see TemporalChildWorkflowRunner} always defers the start, so no path of the component
      * reaches this; a wiring mistake that did would drop the child's outcome.
      */
-    public function completeChildWorkflow(string $childExecutionId, mixed $result): void
+    public function completeChildWorkflow(ExecutionId|string $childExecutionId, mixed $result): void
     {
         throw UnsupportedByBackendException::forMethod('Temporal', __FUNCTION__, 'the server records a child\'s outcome in the parent\'s history; start the child with scheduleChildWorkflow() and let TemporalChildWorkflowRunner defer it.');
     }
@@ -393,7 +395,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
      * Refused (DUR051), as {@see completeChildWorkflow()}: CHILD_WORKFLOW_EXECUTION_FAILED is
      * written by the server.
      */
-    public function failChildWorkflow(string $childExecutionId, \Throwable $reason): void
+    public function failChildWorkflow(ExecutionId|string $childExecutionId, \Throwable $reason): void
     {
         throw UnsupportedByBackendException::forMethod('Temporal', __FUNCTION__, 'the server records a child\'s failure in the parent\'s history; start the child with scheduleChildWorkflow() and let TemporalChildWorkflowRunner defer it.');
     }
