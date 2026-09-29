@@ -26,7 +26,7 @@ final class TemporalActivityScheduleInput
         }
 
         return [
-            'executionId' => $scheduled->executionId(),
+            'executionId' => $scheduled->executionId()->toString(),
             'activityId' => $scheduled->activityId(),
             'activityName' => $scheduled->activityName(),
             'payload' => $args,
