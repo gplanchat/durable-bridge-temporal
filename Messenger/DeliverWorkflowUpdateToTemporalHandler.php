@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Gplanchat\Bridge\Temporal\Messenger;
 
 use Gplanchat\Bridge\Temporal\WorkflowClientInterface;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Transport\DeliverWorkflowUpdateMessage;
 
 /**
@@ -20,6 +21,6 @@ final class DeliverWorkflowUpdateToTemporalHandler
 
     public function __invoke(DeliverWorkflowUpdateMessage $message): void
     {
-        $this->client->update($this->client->workflowId($message->executionId), $message->updateName, $message->arguments, $message->updateId);
+        $this->client->update($this->client->workflowId(ExecutionId::fromString($message->executionId)), $message->updateName, $message->arguments, $message->updateId);
     }
 }

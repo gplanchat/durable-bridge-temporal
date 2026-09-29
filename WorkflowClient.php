@@ -49,19 +49,18 @@ final class WorkflowClient implements WorkflowClientInterface
      * Starts a workflow asynchronously (fire and forget).
      *
      * @param array<string, mixed> $payload Business payload for the workflow input.
-     * @return string The Temporal workflow ID used.
+     * @return ExecutionId The execution started; {@see workflowId()} gives its Temporal workflow id.
      */
     public function startAsync(
         string $workflowType,
         array $payload,
-        ExecutionId|string $executionId,
+        ExecutionId $executionId,
         ?WorkflowStartOptions $options = null,
-    ): string {
-        $executionId = (string) $executionId;
-        $workflowId = self::workflowIdOf($executionId);
-        $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
+    ): ExecutionId {
+        $id = $executionId->toString();
+        $this->doStartWorkflow(self::workflowIdOf($id), $workflowType, $payload, $id, $options);
 
-        return $workflowId;
+        return $executionId;
     }
 
     /**
@@ -79,7 +78,9 @@ final class WorkflowClient implements WorkflowClientInterface
         string $executionId,
         CronSchedule|string $schedule,
     ): string {
-        return $this->startAsync($workflowType, $payload, $executionId, WorkflowStartOptions::cron($schedule));
+        $this->startAsync($workflowType, $payload, ExecutionId::fromString($executionId), WorkflowStartOptions::cron($schedule));
+
+        return self::workflowIdOf($executionId);
     }
 
     /**
@@ -91,12 +92,11 @@ final class WorkflowClient implements WorkflowClientInterface
     public function startSync(
         string $workflowType,
         array $payload,
-        ExecutionId|string $executionId,
+        ExecutionId $executionId,
         ?WorkflowStartOptions $options = null,
     ): mixed {
-        $executionId = (string) $executionId;
-        $workflowId = self::workflowIdOf($executionId);
-        $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
+        $workflowId = self::workflowIdOf($executionId->toString());
+        $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId->toString(), $options);
 
         return $this->waitForCompletion($workflowId);
     }
@@ -119,7 +119,7 @@ final class WorkflowClient implements WorkflowClientInterface
         int $refreshIntervalMs = 500,
         int $maxRefreshes = 120,
     ): mixed {
-        $workflowId = $this->workflowId($executionId);
+        $workflowId = $this->workflowId(ExecutionId::fromString($executionId));
         $execution = new WorkflowExecution(['workflow_id' => $workflowId]);
 
         for ($attempt = 0; $attempt < $maxRefreshes; $attempt++) {
@@ -270,16 +270,16 @@ final class WorkflowClient implements WorkflowClientInterface
      * execution id, per its memo. Ids the mapping leaves alone never pay the lookup. That fallback
      * goes in 0.1.0-beta1.
      */
-    public function workflowId(ExecutionId|string $executionId): string
+    public function workflowId(ExecutionId $executionId): string
     {
-        $executionId = (string) $executionId;
-        $current = self::workflowIdOf($executionId);
-        $legacy = self::legacyWorkflowIdOf($executionId);
+        $id = $executionId->toString();
+        $current = self::workflowIdOf($id);
+        $legacy = self::legacyWorkflowIdOf($id);
         if (null === $legacy || null !== $this->describedExecutionId($current)) {
             return $current;
         }
 
-        return $executionId === $this->describedExecutionId($legacy) ? $legacy : $current;
+        return $id === $this->describedExecutionId($legacy) ? $legacy : $current;
     }
 
     /**

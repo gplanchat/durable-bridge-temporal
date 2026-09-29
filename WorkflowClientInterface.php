@@ -20,10 +20,13 @@ interface WorkflowClientInterface
     /**
      * Starts a workflow asynchronously (fire and forget).
      *
+     * Returns the execution it was given, not the Temporal workflow id it used: that one is
+     * {@see workflowId()}, and it is what signal(), query() and update() take (#638).
+     *
      * @param array<string, mixed> $payload Business payload for the workflow input.
-     * @return string The Temporal workflow ID used.
+     * @return ExecutionId The execution started.
      */
-    public function startAsync(string $workflowType, array $payload, ExecutionId|string $executionId): string;
+    public function startAsync(string $workflowType, array $payload, ExecutionId $executionId): ExecutionId;
 
     /**
      * Starts a workflow and blocks until WorkflowExecutionCompleted.
@@ -31,7 +34,7 @@ interface WorkflowClientInterface
      * @param array<string, mixed> $payload Business payload for the workflow input.
      * @return mixed The decoded result of the workflow.
      */
-    public function startSync(string $workflowType, array $payload, ExecutionId|string $executionId): mixed;
+    public function startSync(string $workflowType, array $payload, ExecutionId $executionId): mixed;
 
     /**
      * Polls Temporal for workflow completion, retrying periodically until the workflow terminates.
@@ -82,5 +85,5 @@ interface WorkflowClientInterface
     /**
      * Computes the Temporal workflow ID for a given Durable execution ID.
      */
-    public function workflowId(ExecutionId|string $executionId): string;
+    public function workflowId(ExecutionId $executionId): string;
 }

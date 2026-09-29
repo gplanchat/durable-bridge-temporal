@@ -130,7 +130,7 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     private function historyOf(string $executionId): \Generator
     {
         $found = false;
-        foreach ($this->cursor->events(new WorkflowExecution(['workflow_id' => $this->workflowClient->workflowId($executionId)])) as $historyEvent) {
+        foreach ($this->cursor->events(new WorkflowExecution(['workflow_id' => $this->workflowClient->workflowId(ExecutionId::fromString($executionId))])) as $historyEvent) {
             $found = true;
             yield $historyEvent;
         }
