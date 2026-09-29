@@ -40,7 +40,7 @@ final class TemporalWorkflowResumeDispatcher implements WorkflowResumeDispatcher
     public function dispatchNewWorkflowRun(ExecutionId|string $executionId, string $workflowType, array $payload): void
     {
         $executionId = (string) $executionId;
-        $this->metadataStore->save($executionId, $workflowType, $payload);
+        $this->metadataStore->save(ExecutionId::fromString($executionId), $workflowType, $payload);
 
         $temporalType = $this->workflowDefinitionLoader->aliasForTemporalInterop($workflowType);
         $this->workflowClient->startAsync($temporalType, $payload, ExecutionId::fromString($executionId));
