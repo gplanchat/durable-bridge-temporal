@@ -25,6 +25,7 @@ use Gplanchat\Durable\Observation\WorkflowRunStatus;
 use Gplanchat\Durable\Port\NexusOperationCatalogInterface;
 use Gplanchat\Durable\Port\WorkflowRunCatalogInterface;
 use Temporal\Api\Common\V1\WorkflowExecution;
+use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\Enums\V1\WorkflowExecutionStatus;
 use Temporal\Api\Workflow\V1\WorkflowExecutionInfo;
 use Temporal\Api\Workflowservice\V1\DescribeWorkflowExecutionRequest;
@@ -45,6 +46,14 @@ use Temporal\Api\Workflowservice\V1\ListWorkflowExecutionsRequest;
  */
 final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface, NexusOperationCatalogInterface
 {
+    private const NEXUS_EVENT_TYPES = [
+        EventType::EVENT_TYPE_NEXUS_OPERATION_SCHEDULED,
+        EventType::EVENT_TYPE_NEXUS_OPERATION_COMPLETED,
+        EventType::EVENT_TYPE_NEXUS_OPERATION_FAILED,
+        EventType::EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT,
+        EventType::EVENT_TYPE_NEXUS_OPERATION_CANCELED,
+    ];
+
     private const BACKEND = 'Temporal';
 
     /** The first server version whose visibility queries accept STARTS_WITH (jane measured, #523). */
@@ -209,6 +218,11 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface, N
 
         return NexusOperationSummary::of((static function () use ($cursor, $converter, $execution): \Generator {
             foreach ($cursor->events($execution) as $event) {
+                // Nexus events only: their conversion decodes no payload, where the others would
+                // throw on another encoding, which readHistory() tolerates.
+                if (!\in_array($event->getEventType(), self::NEXUS_EVENT_TYPES, true)) {
+                    continue;
+                }
                 $converted = $converter->convert($event);
                 if (null !== $converted) {
                     yield $converted;
