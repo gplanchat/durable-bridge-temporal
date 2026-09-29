@@ -19,6 +19,7 @@ final class JsonGatewayRoutes
     public const ROUTES = [
         'CountActivityExecutions' => ['GET', '/api/v1/namespaces/{namespace}/activity-count'],
         'DescribeActivityExecution' => ['GET', '/api/v1/namespaces/{namespace}/activities/{activity_id}'],
+        'DescribeTaskQueue' => ['GET', '/api/v1/namespaces/{namespace}/task-queues/{task_queue.name}'],
         'DescribeWorkflowExecution' => ['GET', '/api/v1/namespaces/{namespace}/workflows/{execution.workflow_id}'],
         'GetSystemInfo' => ['GET', '/api/v1/system-info'],
         'GetWorkflowExecutionHistory' => ['GET', '/api/v1/namespaces/{namespace}/workflows/{execution.workflow_id}/history'],

@@ -73,6 +73,14 @@ interface WorkflowServiceClientInterface
     public function GetSystemInfo(Ws\GetSystemInfoRequest $request, array $metadata = [], array $options = []): Ws\GetSystemInfoResponse;
 
     /**
+     * Who polls a task queue, and when each poller last did: how an absent worker shows.
+     *
+     * @param Metadata $metadata
+     * @param Options  $options
+     */
+    public function DescribeTaskQueue(Ws\DescribeTaskQueueRequest $request, array $metadata = [], array $options = []): Ws\DescribeTaskQueueResponse;
+
+    /**
      * @param Metadata $metadata
      * @param Options  $options
      */
