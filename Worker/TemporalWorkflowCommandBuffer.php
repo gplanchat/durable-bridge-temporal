@@ -334,7 +334,9 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     public function cancelActivity(string $activityId, string $reason): void
     {
         $scheduledEventId = $this->history?->scheduledEventIdForActivity($activityId);
-        if (null === $scheduledEventId) {
+        // Replay cancels a race loser again on every task; a second request is refused by the
+        // server, as a second CANCEL_TIMER is (see cancelTimer()).
+        if (null === $scheduledEventId || $this->history->isActivityCancelRequested($activityId)) {
             return;
         }
 
@@ -473,9 +475,9 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
 
     /**
      * Delivered-cancellation marker: Temporal history cannot carry the *reason* of an operation
-     * cancellation, so that on replay an ACTIVITY_TASK_CANCELED reads back as an
-     * ActivitySupersededException — the workflow's `catch (WorkflowCancelledFailure)` would no
-     * longer match and the compensation would diverge from one task to the next.
+     * cancellation. Without the marker, an ACTIVITY_TASK_CANCELED reads back as a race loser,
+     * unsettled — the workflow's `catch (WorkflowCancelledFailure)` would no longer match and
+     * the compensation would diverge from one task to the next.
      *
      * @param list<string> $targetIds
      */

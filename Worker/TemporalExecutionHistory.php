@@ -10,7 +10,6 @@ use Gplanchat\Durable\ActivityCancellationReason;
 use Gplanchat\Durable\Event\ActivityScheduled;
 use Gplanchat\Durable\Event\Event;
 use Gplanchat\Durable\Event\TimerScheduled;
-use Gplanchat\Durable\Exception\ActivitySupersededException;
 use Gplanchat\Durable\Exception\DurableActivityFailedException;
 use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
@@ -89,8 +88,8 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var array<string, \Throwable> activity ID → failure */
     private array $activityFailures = [];
 
-    /** @var array<string, string> activity ID → cancellation reason */
-    private array $activityCancellations = [];
+    /** @var array<string, true> activities the workflow cancelled (losers of a race, or withdrawn) */
+    private array $cancelRequestedActivityIds = [];
 
     /** @var list<string> timer IDs in schedule order */
     private array $scheduledTimerIds = [];
@@ -375,14 +374,15 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                 }
                 break;
 
+            case EventType::EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED:
             case EventType::EVENT_TYPE_ACTIVITY_TASK_CANCELED:
-                $attr = $event->getActivityTaskCanceledEventAttributes();
-                if (null !== $attr) {
-                    $scheduledEventId = $attr->getScheduledEventId();
-                    $activityId = $this->scheduledEventIdToActivityId[$scheduledEventId] ?? null;
-                    if (null !== $activityId) {
-                        $this->activityCancellations[$activityId] = 'Cancelled by Temporal';
-                    }
+                // Only the workflow requests it: the CANCELED that follows says nothing more.
+                $scheduledEventId = EventType::EVENT_TYPE_ACTIVITY_TASK_CANCELED === $event->getEventType()
+                    ? $event->getActivityTaskCanceledEventAttributes()?->getScheduledEventId()
+                    : $event->getActivityTaskCancelRequestedEventAttributes()?->getScheduledEventId();
+                $activityId = $this->scheduledEventIdToActivityId[(int) $scheduledEventId] ?? null;
+                if (null !== $activityId) {
+                    $this->cancelRequestedActivityIds[$activityId] = true;
                 }
                 break;
 
@@ -602,11 +602,15 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         if (isset($this->cancellationDeliveredTargets[$activityId])) {
             return new SlotOutcome(null, new WorkflowCancelledFailure($this->durableExecutionId() ?? '', ActivityCancellationReason::WORKFLOW_CANCELLED));
         }
+        // Any other cancellation the workflow requested withdrew a race loser. It stays unsettled,
+        // as a losing timer does: replay settles the race on its winner again, and cancels the
+        // loser again. Read back as a rejection, it settled first and won the race it had lost.
+        // Whatever it recorded afterwards is not read either (#681, as #678 on the event stores).
+        if (isset($this->cancelRequestedActivityIds[$activityId])) {
+            return null;
+        }
         if (isset($this->activityFailures[$activityId])) {
             return new SlotOutcome(null, $this->activityFailures[$activityId]);
-        }
-        if (isset($this->activityCancellations[$activityId])) {
-            return new SlotOutcome(null, new ActivitySupersededException($activityId, $this->activityCancellations[$activityId]));
         }
         if (\array_key_exists($activityId, $this->activityResults)) {
             return new SlotOutcome($this->activityResults[$activityId]);
@@ -835,6 +839,15 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         }
 
         return $events;
+    }
+
+    /**
+     * Has the workflow already requested this activity's cancellation? Replay goes through the
+     * race loser's cancellation again, and must not request it twice.
+     */
+    public function isActivityCancelRequested(string $activityId): bool
+    {
+        return isset($this->cancelRequestedActivityIds[$activityId]);
     }
 
     public function scheduledEventIdForActivity(string $activityId): ?int
