@@ -76,7 +76,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
     public function scheduleActivity(string $activityId, string $activityName, array $payload, ?ActivityOptions $options): void
     {
         $taskQueueName = ((null !== $options ? $options->taskQueue : null) ?? $this->connection->activityTaskQueue)->name();
-        $this->waitJournal[] = new ActivityScheduled($this->executionId, $activityId, $activityName, []);
+        $this->waitJournal[] = new ActivityScheduled(ExecutionId::fromString($this->executionId), $activityId, $activityName, []);
 
         $attrs = new ScheduleActivityTaskCommandAttributes();
         $attrs->setActivityId($activityId);
@@ -86,7 +86,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         // The worker will read these options back from the activity input: this is the wire, it
         // keeps its flat shape. The server timestamps the queueing itself.
         $scheduled = new ActivityScheduled(
-            $this->executionId,
+            ExecutionId::fromString($this->executionId),
             $activityId,
             $activityName,
             $payload,
@@ -145,7 +145,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         // From this task's start, the clock later tasks read the deadline back from; the worker's own
         // only without a history. No summary: the command does not carry it, so a later task could
         // not word the same wait alike.
-        $this->waitJournal[] = new TimerScheduled($this->executionId, $timerId, ($this->history?->taskStartedAt() ?? microtime(true)) + $delay->toSeconds());
+        $this->waitJournal[] = new TimerScheduled(ExecutionId::fromString($this->executionId), $timerId, ($this->history?->taskStartedAt() ?? microtime(true)) + $delay->toSeconds());
 
         $attrs = new StartTimerCommandAttributes();
         $attrs->setTimerId($timerId);
@@ -290,7 +290,7 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         // and the domain event became unreconstructable when reading the history back. It now
         // travels in the ApplicationFailureInfo `details`; `type` stays the exception FQCN, the
         // only field the server matches against nonRetryableErrorTypes.
-        $classified = WorkflowFailureClassifier::classify($this->executionId, $reason);
+        $classified = WorkflowFailureClassifier::classify(ExecutionId::fromString($this->executionId), $reason);
 
         $info = new ApplicationFailureInfo();
         $info->setType($classified->failureClass());
