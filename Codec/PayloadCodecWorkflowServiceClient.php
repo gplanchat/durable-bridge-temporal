@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Gplanchat\Bridge\Temporal\Codec;
 
+use Google\Protobuf\Any;
 use Google\Protobuf\DescriptorPool;
 use Google\Protobuf\Internal\GPBType;
 use Google\Protobuf\Internal\Message;
@@ -17,7 +18,12 @@ use Temporal\Api\Common\V1\Payload;
  *
  * The walk reads the generated descriptors, so a message a later API version adds is covered with
  * no list to keep. Search attributes are skipped by message type: the server must index them.
- * This is where Temporal's Go SDK puts its gRPC codec interceptor, and what it skips.
+ * An `Any` is unpacked, walked and packed again: the update protocol carries its requests and
+ * results that way. This is where Temporal's Go SDK puts its gRPC codec interceptor, and what it
+ * skips.
+ *
+ * The request is copied, which costs its size once more; the response is decoded in place, so the
+ * inner client must hand out a response of its own, not a shared one.
  */
 final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceClient
 {
@@ -56,6 +62,14 @@ final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceCli
      */
     private function walk(Message $message, \Closure $transform): void
     {
+        if ($message instanceof Any) {
+            // An unknown type throws here rather than leaving its payloads untouched.
+            $packed = $message->unpack();
+            $this->walk($packed, $transform);
+            $message->pack($packed);
+
+            return;
+        }
         $descriptor = DescriptorPool::getGeneratedPool()->getDescriptorByClassName($message::class);
         if (self::SEARCH_ATTRIBUTES === $descriptor->getFullName()) {
             return;
