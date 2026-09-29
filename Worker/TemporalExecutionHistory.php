@@ -722,9 +722,11 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return new ChildWorkflowOutcome($childId, $outcome['result']);
     }
 
-    public function findScheduledChildExecutionId(int $slot): ?string
+    public function findScheduledChildExecutionId(int $slot): ?ExecutionId
     {
-        return $this->childExecutionIds[$slot] ?? null;
+        $childId = $this->childExecutionIds[$slot] ?? null;
+
+        return null === $childId ? null : ExecutionId::fromString($childId);
     }
 
     public function childWorkflowTypeForSlot(int $slot): ?string
@@ -776,17 +778,14 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return $this->firedTimerIds[$timerId] ?? null;
     }
 
-    public function hasChildExecutionId(ExecutionId|string $childExecutionId): bool
+    public function hasChildExecutionId(ExecutionId $childExecutionId): bool
     {
-        $childExecutionId = (string) $childExecutionId;
-
-        return \in_array($childExecutionId, $this->childExecutionIds, true);
+        return \in_array($childExecutionId->toString(), $this->childExecutionIds, true);
     }
 
-    public function hasChildExecutionCompletedSuccessfully(ExecutionId|string $childExecutionId): bool
+    public function hasChildExecutionCompletedSuccessfully(ExecutionId $childExecutionId): bool
     {
-        $childExecutionId = (string) $childExecutionId;
-        $outcome = $this->childOutcomes[$childExecutionId] ?? null;
+        $outcome = $this->childOutcomes[$childExecutionId->toString()] ?? null;
 
         return null !== $outcome && !$outcome['failed'];
     }
