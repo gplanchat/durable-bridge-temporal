@@ -14,6 +14,7 @@ use Gplanchat\Durable\Exception\ActivitySupersededException;
 use Gplanchat\Durable\Exception\DurableActivityFailedException;
 use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Failure\FailureEnvelope;
 use Gplanchat\Durable\Nexus\NexusOperationFailureKind;
 use Gplanchat\Durable\Port\History\CancellationDelivery;
@@ -775,13 +776,16 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         return $this->firedTimerIds[$timerId] ?? null;
     }
 
-    public function hasChildExecutionId(string $childExecutionId): bool
+    public function hasChildExecutionId(ExecutionId|string $childExecutionId): bool
     {
+        $childExecutionId = (string) $childExecutionId;
+
         return \in_array($childExecutionId, $this->childExecutionIds, true);
     }
 
-    public function hasChildExecutionCompletedSuccessfully(string $childExecutionId): bool
+    public function hasChildExecutionCompletedSuccessfully(ExecutionId|string $childExecutionId): bool
     {
+        $childExecutionId = (string) $childExecutionId;
         $outcome = $this->childOutcomes[$childExecutionId] ?? null;
 
         return null !== $outcome && !$outcome['failed'];

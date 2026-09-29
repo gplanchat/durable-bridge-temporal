@@ -14,6 +14,7 @@ use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Bridge\Temporal\WorkflowClient;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Exception\RunFilterUnavailableException;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Observation\BackendHealth;
 use Gplanchat\Durable\Observation\WorkflowRunDescription;
 use Gplanchat\Durable\Observation\WorkflowRunEvent;
@@ -136,8 +137,9 @@ final class TemporalWorkflowRunCatalog implements WorkflowRunCatalogInterface
      * A run Durable did not start is listed under its own workflow id, and found by it second. An
      * execution the server does not know is not found; any other failure is not passed off as one.
      */
-    public function findRun(string $executionId): ?WorkflowRunDescription
+    public function findRun(ExecutionId|string $executionId): ?WorkflowRunDescription
     {
+        $executionId = (string) $executionId;
         // Durable's workflow id, then the lossy one a run started before #566 may still live under
         // (gone in 0.1.0-beta1), then the id itself, as a child or a foreign run has. A run counts
         // only if it was started with this execution id: the legacy id is shared by several.
