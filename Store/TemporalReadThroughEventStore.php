@@ -87,9 +87,11 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      */
     private function streamFromTemporal(ExecutionId $executionId): \Generator
     {
-        $converter = new TemporalEventConverter($executionId->toString());
+        // The whole history first: a cancellation's reason is recorded after the cancellation (#701).
+        $history = iterator_to_array($this->historyOf($executionId), false);
+        $converter = TemporalEventConverter::forHistory($executionId->toString(), $history);
 
-        foreach ($this->historyOf($executionId) as $historyEvent) {
+        foreach ($history as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
             if (null !== $durableEvent) {
                 yield $durableEvent;
@@ -102,9 +104,11 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      */
     private function streamFromTemporalWithTimestamps(ExecutionId $executionId): \Generator
     {
-        $converter = new TemporalEventConverter($executionId->toString());
+        // The whole history first: a cancellation's reason is recorded after the cancellation (#701).
+        $history = iterator_to_array($this->historyOf($executionId), false);
+        $converter = TemporalEventConverter::forHistory($executionId->toString(), $history);
 
-        foreach ($this->historyOf($executionId) as $historyEvent) {
+        foreach ($history as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
             if (null !== $durableEvent) {
                 yield [
