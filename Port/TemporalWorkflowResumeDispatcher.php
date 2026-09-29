@@ -37,16 +37,15 @@ final class TemporalWorkflowResumeDispatcher implements WorkflowResumeDispatcher
     /**
      * @param array<string, mixed> $payload
      */
-    public function dispatchNewWorkflowRun(ExecutionId|string $executionId, string $workflowType, array $payload): void
+    public function dispatchNewWorkflowRun(ExecutionId $executionId, string $workflowType, array $payload): void
     {
-        $executionId = (string) $executionId;
-        $this->metadataStore->save(ExecutionId::fromString($executionId), $workflowType, $payload);
+        $this->metadataStore->save($executionId, $workflowType, $payload);
 
         $temporalType = $this->workflowDefinitionLoader->aliasForTemporalInterop($workflowType);
-        $this->workflowClient->startAsync($temporalType, $payload, ExecutionId::fromString($executionId));
+        $this->workflowClient->startAsync($temporalType, $payload, $executionId);
 
         $this->executionTrace?->onWorkflowDispatchRequested(
-            $executionId,
+            $executionId->toString(),
             $workflowType,
             $payload,
             false,
@@ -58,10 +57,10 @@ final class TemporalWorkflowResumeDispatcher implements WorkflowResumeDispatcher
      * No-op: Temporal schedules the next workflow task automatically after each activity/timer
      * completion. There is no application-level message to dispatch.
      */
-    public function dispatchResume(ExecutionId|string $executionId, array $pendingUpdates = []): void {}
+    public function dispatchResume(ExecutionId $executionId, array $pendingUpdates = []): void {}
 
     /**
      * No-op, for the same reason: the server owns delivery.
      */
-    public function dispatchResumeAwaiting(ExecutionId|string $executionId, AwaitedFact $fact): void {}
+    public function dispatchResumeAwaiting(ExecutionId $executionId, AwaitedFact $fact): void {}
 }
