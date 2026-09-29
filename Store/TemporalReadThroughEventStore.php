@@ -7,6 +7,7 @@ namespace Gplanchat\Bridge\Temporal\Store;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalHistoryCursor;
 use Gplanchat\Bridge\Temporal\WorkflowClientInterface;
 use Gplanchat\Durable\Event\Event;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Store\EventStoreInterface;
 use Temporal\Api\Common\V1\WorkflowExecution;
 use Temporal\Api\History\V1\HistoryEvent;
@@ -43,8 +44,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      * @return iterable<Event>
      */
     #[\Override]
-    public function readStream(string $executionId): iterable
+    public function readStream(ExecutionId|string $executionId): iterable
     {
+        $executionId = (string) $executionId;
         if ($this->localStore->countEventsInStream($executionId) > 0) {
             return $this->localStore->readStream($executionId);
         }
@@ -56,8 +58,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      * @return iterable<array{event: Event, recordedAt: \DateTimeImmutable|null}>
      */
     #[\Override]
-    public function readStreamWithRecordedAt(string $executionId): iterable
+    public function readStreamWithRecordedAt(ExecutionId|string $executionId): iterable
     {
+        $executionId = (string) $executionId;
         if ($this->localStore->countEventsInStream($executionId) > 0) {
             return $this->localStore->readStreamWithRecordedAt($executionId);
         }
@@ -66,8 +69,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     }
 
     #[\Override]
-    public function countEventsInStream(string $executionId): int
+    public function countEventsInStream(ExecutionId|string $executionId): int
     {
+        $executionId = (string) $executionId;
         $local = $this->localStore->countEventsInStream($executionId);
         if ($local > 0) {
             return $local;
