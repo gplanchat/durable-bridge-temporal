@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Gplanchat\Bridge\Temporal;
 
+use Gplanchat\Durable\ExecutionId;
+
 /**
  * Contract for driving Temporal workflow executions from application code.
  *
@@ -21,7 +23,7 @@ interface WorkflowClientInterface
      * @param array<string, mixed> $payload Business payload for the workflow input.
      * @return string The Temporal workflow ID used.
      */
-    public function startAsync(string $workflowType, array $payload, string $executionId): string;
+    public function startAsync(string $workflowType, array $payload, ExecutionId|string $executionId): string;
 
     /**
      * Starts a workflow and blocks until WorkflowExecutionCompleted.
@@ -29,7 +31,7 @@ interface WorkflowClientInterface
      * @param array<string, mixed> $payload Business payload for the workflow input.
      * @return mixed The decoded result of the workflow.
      */
-    public function startSync(string $workflowType, array $payload, string $executionId): mixed;
+    public function startSync(string $workflowType, array $payload, ExecutionId|string $executionId): mixed;
 
     /**
      * Polls Temporal for workflow completion, retrying periodically until the workflow terminates.
@@ -80,5 +82,5 @@ interface WorkflowClientInterface
     /**
      * Computes the Temporal workflow ID for a given Durable execution ID.
      */
-    public function workflowId(string $executionId): string;
+    public function workflowId(ExecutionId|string $executionId): string;
 }

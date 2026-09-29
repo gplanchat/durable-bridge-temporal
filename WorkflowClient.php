@@ -12,6 +12,7 @@ use Gplanchat\Bridge\Temporal\Journal\JournalExecutionIdResolver;
 use Gplanchat\Bridge\Temporal\Worker\TemporalPolicyMapper;
 use Gplanchat\Durable\CronSchedule;
 use Gplanchat\Durable\Exception\DurableUpdateFailedException;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Workflow\WorkflowDefinitionLoader;
 use Gplanchat\Durable\WorkflowStartOptions;
 use Temporal\Api\Common\V1\Memo;
@@ -53,9 +54,10 @@ final class WorkflowClient implements WorkflowClientInterface
     public function startAsync(
         string $workflowType,
         array $payload,
-        string $executionId,
+        ExecutionId|string $executionId,
         ?WorkflowStartOptions $options = null,
     ): string {
+        $executionId = (string) $executionId;
         $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
@@ -89,9 +91,10 @@ final class WorkflowClient implements WorkflowClientInterface
     public function startSync(
         string $workflowType,
         array $payload,
-        string $executionId,
+        ExecutionId|string $executionId,
         ?WorkflowStartOptions $options = null,
     ): mixed {
+        $executionId = (string) $executionId;
         $workflowId = self::workflowIdOf($executionId);
         $this->doStartWorkflow($workflowId, $workflowType, $payload, $executionId, $options);
 
@@ -267,8 +270,9 @@ final class WorkflowClient implements WorkflowClientInterface
      * execution id, per its memo. Ids the mapping leaves alone never pay the lookup. That fallback
      * goes in 0.1.0-beta1.
      */
-    public function workflowId(string $executionId): string
+    public function workflowId(ExecutionId|string $executionId): string
     {
+        $executionId = (string) $executionId;
         $current = self::workflowIdOf($executionId);
         $legacy = self::legacyWorkflowIdOf($executionId);
         if (null === $legacy || null !== $this->describedExecutionId($current)) {
