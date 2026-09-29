@@ -44,9 +44,8 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      * @return iterable<Event>
      */
     #[\Override]
-    public function readStream(ExecutionId|string $executionId): iterable
+    public function readStream(ExecutionId $executionId): iterable
     {
-        $executionId = (string) $executionId;
         if ($this->localStore->countEventsInStream($executionId) > 0) {
             return $this->localStore->readStream($executionId);
         }
@@ -58,9 +57,8 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      * @return iterable<array{event: Event, recordedAt: \DateTimeImmutable|null}>
      */
     #[\Override]
-    public function readStreamWithRecordedAt(ExecutionId|string $executionId): iterable
+    public function readStreamWithRecordedAt(ExecutionId $executionId): iterable
     {
-        $executionId = (string) $executionId;
         if ($this->localStore->countEventsInStream($executionId) > 0) {
             return $this->localStore->readStreamWithRecordedAt($executionId);
         }
@@ -69,9 +67,8 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     }
 
     #[\Override]
-    public function countEventsInStream(ExecutionId|string $executionId): int
+    public function countEventsInStream(ExecutionId $executionId): int
     {
-        $executionId = (string) $executionId;
         $local = $this->localStore->countEventsInStream($executionId);
         if ($local > 0) {
             return $local;
@@ -88,9 +85,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     /**
      * @return \Generator<int, Event>
      */
-    private function streamFromTemporal(string $executionId): \Generator
+    private function streamFromTemporal(ExecutionId $executionId): \Generator
     {
-        $converter = new TemporalEventConverter($executionId);
+        $converter = new TemporalEventConverter($executionId->toString());
 
         foreach ($this->historyOf($executionId) as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
@@ -103,9 +100,9 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
     /**
      * @return \Generator<int, array{event: Event, recordedAt: \DateTimeImmutable|null}>
      */
-    private function streamFromTemporalWithTimestamps(string $executionId): \Generator
+    private function streamFromTemporalWithTimestamps(ExecutionId $executionId): \Generator
     {
-        $converter = new TemporalEventConverter($executionId);
+        $converter = new TemporalEventConverter($executionId->toString());
 
         foreach ($this->historyOf($executionId) as $historyEvent) {
             $durableEvent = $converter->convert($historyEvent);
@@ -127,16 +124,16 @@ final class TemporalReadThroughEventStore implements EventStoreInterface
      *
      * @return \Generator<int, HistoryEvent>
      */
-    private function historyOf(string $executionId): \Generator
+    private function historyOf(ExecutionId $executionId): \Generator
     {
         $found = false;
-        foreach ($this->cursor->events(new WorkflowExecution(['workflow_id' => $this->workflowClient->workflowId(ExecutionId::fromString($executionId))])) as $historyEvent) {
+        foreach ($this->cursor->events(new WorkflowExecution(['workflow_id' => $this->workflowClient->workflowId($executionId)])) as $historyEvent) {
             $found = true;
             yield $historyEvent;
         }
 
         if (!$found) {
-            yield from $this->cursor->events(new WorkflowExecution(['workflow_id' => $executionId]));
+            yield from $this->cursor->events(new WorkflowExecution(['workflow_id' => $executionId->toString()]));
         }
     }
 }
