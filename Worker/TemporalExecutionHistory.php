@@ -12,6 +12,7 @@ use Gplanchat\Durable\Event\Event;
 use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Exception\DurableActivityFailedException;
 use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
+use Gplanchat\Durable\Exception\DurableUpdateFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
 use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\Failure\FailureEnvelope;
@@ -118,7 +119,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var list<array{signalName: string, payload: mixed, eventId: int}> signals in receive order */
     private array $signals = [];
 
-    /** @var list<array{updateId: string, updateName: string, result: mixed, eventId: int, arguments: array<string, mixed>}> updates in accept order */
+    /** @var list<array{updateId: string, updateName: string, outcome: ?SlotOutcome, eventId: int, arguments: array<string, mixed>}> updates in accept order; outcome null until completed */
     private array $updates = [];
 
     /** @var list<string> child execution IDs in schedule order */
@@ -496,7 +497,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                             $decoded = JsonPlainPayload::decode($args[0]);
                             $arguments = \is_array($decoded) ? $decoded : ['value' => $decoded];
                         }
-                        $this->updates[] = ['updateId' => (string) $request->getMeta()?->getUpdateId(), 'updateName' => $updateName, 'result' => null, 'eventId' => $eventId, 'arguments' => $arguments];
+                        $this->updates[] = ['updateId' => (string) $request->getMeta()?->getUpdateId(), 'updateName' => $updateName, 'outcome' => null, 'eventId' => $eventId, 'arguments' => $arguments];
                     }
                 }
                 break;
@@ -504,15 +505,26 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
             case EventType::EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
                 $attr = $event->getWorkflowExecutionUpdateCompletedEventAttributes();
                 if (null !== $attr) {
+                    // Matched by the update id in `meta` (field 1, echoed from the worker's
+                    // response by UpdateProtocol), else by `accepted_event_id` (field 3, added
+                    // later to the proto). Never by position: updates may interleave (#803).
+                    $updateId = (string) $attr->getMeta()?->getUpdateId();
+                    $acceptedEventId = (int) $attr->getAcceptedEventId();
                     $outcome = $attr->getOutcome();
-                    if (null !== $outcome && null !== $outcome->getSuccess()) {
-                        $payloads = $outcome->getSuccess()->getPayloads();
-                        $result = $payloads->count() > 0 ? JsonPlainPayload::decode($payloads[0]) : null;
-                        // Update the last update's result
-                        $lastIdx = count($this->updates) - 1;
-                        if ($lastIdx >= 0) {
-                            $this->updates[$lastIdx]['result'] = $result;
+                    foreach ($this->updates as $i => $update) {
+                        $matches = '' !== $updateId ? $update['updateId'] === $updateId : $update['eventId'] === $acceptedEventId;
+                        if (!$matches || null === $outcome) {
+                            continue;
                         }
+                        if (null !== $outcome->getFailure()) {
+                            $failed = new DurableUpdateFailedException($update['updateName'], $outcome->getFailure()->getMessage());
+                            $this->updates[$i]['outcome'] = new SlotOutcome(null, $failed);
+                        } else {
+                            $payloads = $outcome->getSuccess()?->getPayloads();
+                            $result = null !== $payloads && $payloads->count() > 0 ? JsonPlainPayload::decode($payloads[0]) : null;
+                            $this->updates[$i]['outcome'] = new SlotOutcome($result);
+                        }
+                        break;
                     }
                 }
                 break;
@@ -752,8 +764,8 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     public function updateOutcome(string $updateId): ?SlotOutcome
     {
         foreach ($this->updates as $update) {
-            if ($update['updateId'] === $updateId && null !== $update['result']) {
-                return new SlotOutcome($update['result']);
+            if ($update['updateId'] === $updateId) {
+                return $update['outcome'];
             }
         }
 
