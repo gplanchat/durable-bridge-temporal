@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Gplanchat\Bridge\Temporal\Worker;
 
 use Gplanchat\Bridge\Temporal\Codec\JsonPlainPayload;
+use Gplanchat\Bridge\Temporal\Codec\PayloadDecodeFailure;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Exception\WorkflowTaskFailure;
 use Temporal\Api\Enums\V1\QueryResultType;
+use Temporal\Api\Enums\V1\WorkflowTaskFailedCause;
 use Temporal\Api\Failure\V1\Failure;
 use Temporal\Api\Query\V1\WorkflowQueryResult;
 use Temporal\Api\Taskqueue\V1\TaskQueue;
@@ -47,7 +49,8 @@ final readonly class WorkflowTaskProcessor
 
         try {
             $result = $this->runner->run($poll);
-        } catch (WorkflowTaskFailure $e) {
+        } catch (WorkflowTaskFailure|PayloadDecodeFailure $e) {
+            // A payload on a later history page is decoded here, during replay, not at poll time (#824).
             $this->respondTaskFailed($poll->getTaskToken(), $e);
 
             return true;
@@ -88,9 +91,10 @@ final readonly class WorkflowTaskProcessor
      *
      * `cause` stays at its default value, `UNSPECIFIED`: the causes the server enumerates describe
      * worker protocol faults, and a replay divergence is not one of them. Inventing one would tell
-     * the server something false.
+     * the server something false. A payload that fails to decode gets the cause a failed decode
+     * gets at poll time ({@see \Gplanchat\Bridge\Temporal\Codec\PayloadCodecWorkflowServiceClient}).
      */
-    private function respondTaskFailed(string $taskToken, WorkflowTaskFailure $reason): void
+    private function respondTaskFailed(string $taskToken, WorkflowTaskFailure|PayloadDecodeFailure $reason): void
     {
         $failure = new Failure();
         $failure->setMessage($reason->getMessage());
@@ -101,6 +105,9 @@ final readonly class WorkflowTaskProcessor
         $req->setIdentity($this->settings->identity);
         $req->setTaskToken($taskToken);
         $req->setFailure($failure);
+        if ($reason instanceof PayloadDecodeFailure) {
+            $req->setCause(WorkflowTaskFailedCause::WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_WORKER_UNHANDLED_FAILURE);
+        }
 
         $this->client->RespondWorkflowTaskFailed($req, [], ['timeout' => TemporalGrpcTimeouts::RESPOND_WORKFLOW_TASK_US]);
     }

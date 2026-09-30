@@ -73,7 +73,7 @@ final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceCli
             $this->walk($response, $this->codec->decode(...));
         } catch (\Throwable $e) {
             if (!$this->failTask($copy, $response, $e)) {
-                throw $e;
+                throw new PayloadDecodeFailure(sprintf('Payload decode failed: %s', $e->getMessage()), 0, $e);
             }
 
             // An empty poll, as after a long poll that found nothing: every worker loop polls again.
