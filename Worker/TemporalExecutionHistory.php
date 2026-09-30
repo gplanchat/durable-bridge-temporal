@@ -118,7 +118,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var list<array{signalName: string, payload: mixed, eventId: int}> signals in receive order */
     private array $signals = [];
 
-    /** @var list<array{updateName: string, result: mixed, eventId: int, arguments: array<string, mixed>}> updates in accept order */
+    /** @var list<array{updateId: string, updateName: string, result: mixed, eventId: int, arguments: array<string, mixed>}> updates in accept order */
     private array $updates = [];
 
     /** @var list<string> child execution IDs in schedule order */
@@ -496,7 +496,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                             $decoded = JsonPlainPayload::decode($args[0]);
                             $arguments = \is_array($decoded) ? $decoded : ['value' => $decoded];
                         }
-                        $this->updates[] = ['updateName' => $updateName, 'result' => null, 'eventId' => $eventId, 'arguments' => $arguments];
+                        $this->updates[] = ['updateId' => (string) $request->getMeta()?->getUpdateId(), 'updateName' => $updateName, 'result' => null, 'eventId' => $eventId, 'arguments' => $arguments];
                     }
                 }
                 break;
@@ -744,6 +744,20 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         }
 
         return \sprintf('%s/%s/%s', $site['endpoint'], $site['service'], $site['operation']);
+    }
+
+    /**
+     * The recorded outcome of an update, by its id, or null while it has not completed.
+     */
+    public function updateOutcome(string $updateId): ?SlotOutcome
+    {
+        foreach ($this->updates as $update) {
+            if ($update['updateId'] === $updateId && null !== $update['result']) {
+                return new SlotOutcome($update['result']);
+            }
+        }
+
+        return null;
     }
 
     public function messageAt(int $index): ?RecordedMessage
