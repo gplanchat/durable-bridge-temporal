@@ -89,14 +89,16 @@ final readonly class TemporalRunHistoryReader
         $execution->setRunId($runId);
 
         $history = [];
+        $runType = null;
         foreach ($this->cursor->events($execution) as $event) {
             $type = EventType::name($event->getEventType());
+            $runType ??= null !== $event->getWorkflowExecutionStartedEventAttributes() ? self::workflowTypeOf($event) : null;
 
             $history[] = new WorkflowRunEvent(
                 (int) $event->getEventId(),
                 self::recordedAt($event),
                 self::kindOf($type),
-                self::labelOf($event, $type),
+                self::labelOf($event, $type, $runType),
                 self::detailsOf($event),
                 self::actionKeyOf($event, $type),
                 // A suffix is enough: Temporal names `_STARTED` every event by which a worker
@@ -319,7 +321,7 @@ final readonly class TemporalRunHistoryReader
      * `SendWelcomeEmail` is better than `act-1`, which is better than
      * `ACTIVITY TASK SCHEDULED`.
      */
-    private static function labelOf(HistoryEvent $event, string $eventType): string
+    private static function labelOf(HistoryEvent $event, string $eventType, ?string $runType = null): string
     {
         // A frieze row carries the name of its action. The events that open an execution — its
         // own, that of a child — name their workflow type, and that is the name the operator is
@@ -327,6 +329,12 @@ final readonly class TemporalRunHistoryReader
         $workflowType = self::workflowTypeOf($event);
         if (null !== $workflowType) {
             return $workflowType;
+        }
+
+        // The end, the failure and the cancellation of the execution carry the same name, as they
+        // do on the house journal (#850): the phase says what happened.
+        if (null !== $runType && str_starts_with($eventType, 'EVENT_TYPE_WORKFLOW_EXECUTION_') && self::belongsToTheRunItself($eventType)) {
+            return $runType;
         }
 
         $scheduled = $event->getActivityTaskScheduledEventAttributes();
