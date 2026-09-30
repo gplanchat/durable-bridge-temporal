@@ -9,6 +9,7 @@ use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Exception\WorkflowTaskFailure;
+use Psr\Log\LoggerInterface;
 use Temporal\Api\Enums\V1\QueryResultType;
 use Temporal\Api\Failure\V1\Failure;
 use Temporal\Api\Query\V1\WorkflowQueryResult;
@@ -31,6 +32,7 @@ final readonly class WorkflowTaskProcessor
         private readonly WorkflowServiceClientInterface $client,
         private readonly TemporalConnection $settings,
         private readonly WorkflowTaskRunner $runner,
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     /**
@@ -86,6 +88,11 @@ final readonly class WorkflowTaskProcessor
      * Fails the **task**, not the execution: no command is emitted, so the history learns nothing
      * of this attempt and the server hands the task back.
      *
+     * The server may reject this answer with NOT_FOUND (5), when the task has already timed out,
+     * or with InvalidArgument (3), when it has already failed and rescheduled the task: the same
+     * two codes {@see respond()} lets through. Either way the token is dead and the history holds
+     * nothing from this attempt, so the worker logs the rejection and keeps polling (#863).
+     *
      * `cause` stays at its default value, `UNSPECIFIED`: the causes the server enumerates describe
      * worker protocol faults, and a replay divergence is not one of them. Inventing one would tell
      * the server something false.
@@ -102,7 +109,17 @@ final readonly class WorkflowTaskProcessor
         $req->setTaskToken($taskToken);
         $req->setFailure($failure);
 
-        $this->client->RespondWorkflowTaskFailed($req, [], ['timeout' => TemporalGrpcTimeouts::RESPOND_WORKFLOW_TASK_US]);
+        try {
+            $this->client->RespondWorkflowTaskFailed($req, [], ['timeout' => TemporalGrpcTimeouts::RESPOND_WORKFLOW_TASK_US]);
+        } catch (\RuntimeException $e) {
+            if (5 !== $e->getCode() && 3 !== $e->getCode()) {
+                throw $e;
+            }
+            $this->logger?->warning('Temporal rejected a workflow task failure answer; the worker keeps polling.', [
+                'code' => $e->getCode(),
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function pollOnce(): PollWorkflowTaskQueueResponse
