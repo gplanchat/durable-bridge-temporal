@@ -10,6 +10,7 @@ use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Gplanchat\Durable\Exception\WorkflowTaskFailure;
+use Psr\Log\LoggerInterface;
 use Temporal\Api\Enums\V1\QueryResultType;
 use Temporal\Api\Enums\V1\WorkflowTaskFailedCause;
 use Temporal\Api\Failure\V1\Failure;
@@ -33,6 +34,7 @@ final readonly class WorkflowTaskProcessor
         private readonly WorkflowServiceClientInterface $client,
         private readonly TemporalConnection $settings,
         private readonly WorkflowTaskRunner $runner,
+        private readonly ?LoggerInterface $logger = null,
     ) {}
 
     /**
@@ -183,6 +185,16 @@ final readonly class WorkflowTaskProcessor
         } catch (\RuntimeException $e) {
             // NOT_FOUND: task token is stale or workflow was already closed (e.g. replayed from a prior attempt).
             if (5 === $e->getCode()) {
+                return;
+            }
+            // INVALID_ARGUMENT: the server has already failed and rescheduled the task, for instance
+            // on BadSearchAttributes while a continue-as-new's mapping settles (#840).
+            if (3 === $e->getCode()) {
+                $this->logger?->warning('Temporal rejected a workflow task completion; the server reschedules the task.', [
+                    'code' => $e->getCode(),
+                    'message' => $e->getMessage(),
+                ]);
+
                 return;
             }
 
