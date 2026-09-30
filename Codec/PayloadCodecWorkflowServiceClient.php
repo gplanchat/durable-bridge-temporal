@@ -10,8 +10,17 @@ use Google\Protobuf\DescriptorPool;
 use Google\Protobuf\Internal\GPBType;
 use Google\Protobuf\Internal\Message;
 use Gplanchat\Bridge\Temporal\AbstractWorkflowServiceClient;
+use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Temporal\Api\Common\V1\Payload;
+use Temporal\Api\Enums\V1\ActivityTaskFailedCause;
+use Temporal\Api\Enums\V1\WorkflowTaskFailedCause;
+use Temporal\Api\Failure\V1\ApplicationFailureInfo;
+use Temporal\Api\Failure\V1\Failure;
+use Temporal\Api\Workflowservice\V1\PollActivityTaskQueueRequest;
+use Temporal\Api\Workflowservice\V1\PollWorkflowTaskQueueRequest;
+use Temporal\Api\Workflowservice\V1\RespondActivityTaskFailedRequest;
+use Temporal\Api\Workflowservice\V1\RespondWorkflowTaskFailedRequest;
 
 /**
  * Applies a {@see PayloadCodecInterface} where every RPC passes (DUR055): the payloads of a request
@@ -29,6 +38,7 @@ use Temporal\Api\Common\V1\Payload;
 final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceClient
 {
     private const SEARCH_ATTRIBUTES = 'temporal.api.common.v1.SearchAttributes';
+    private const GRPC_NOT_FOUND = 5;
     private const PAYLOAD = 'temporal.api.common.v1.Payload';
     private const ANY = 'google.protobuf.Any';
 
@@ -58,9 +68,65 @@ final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceCli
 
         $response = $this->inner->{$rpc}($copy, $metadata, $options);
         \assert($response instanceof $responseClass);
-        $this->walk($response, $this->codec->decode(...));
+
+        try {
+            $this->walk($response, $this->codec->decode(...));
+        } catch (\Throwable $e) {
+            if (!$this->failTask($copy, $response, $e)) {
+                throw $e;
+            }
+
+            // An empty poll, as after a long poll that found nothing: every worker loop polls again.
+            return new $responseClass();
+        }
 
         return $response;
+    }
+
+    /**
+     * A polled task that cannot be decoded is answered as failed (#775), here because this is the
+     * one place that holds both the task token and the error. Left to throw, it stopped the worker,
+     * and the next worker to receive the task stopped too.
+     *
+     * The failure carries the error's class and message, never its stack trace: the trace quotes
+     * arguments, and those of a decrypt call are the key or the plaintext this server must not see.
+     *
+     * @return bool false when the call is not a task poll, whose caller gets the error instead
+     */
+    private function failTask(Message $request, Message $response, \Throwable $error): bool
+    {
+        if ($request instanceof PollWorkflowTaskQueueRequest) {
+            $failed = new RespondWorkflowTaskFailedRequest(['cause' => WorkflowTaskFailedCause::WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_WORKER_UNHANDLED_FAILURE]);
+            $rpc = 'RespondWorkflowTaskFailed';
+        } elseif ($request instanceof PollActivityTaskQueueRequest) {
+            // A server older than this field ignores it, as proto3 does with any unknown field.
+            $failed = new RespondActivityTaskFailedRequest(['cause' => ActivityTaskFailedCause::ACTIVITY_TASK_FAILED_CAUSE_ACTIVITY_WORKER_UNHANDLED_FAILURE]);
+            $rpc = 'RespondActivityTaskFailed';
+        } else {
+            return false;
+        }
+        \assert(method_exists($response, 'getTaskToken'));
+
+        $failure = new Failure();
+        $failure->setMessage(sprintf('Payload decode failed: %s', $error->getMessage()));
+        $failure->setSource('DurablePayloadCodec');
+        $failure->setApplicationFailureInfo(new ApplicationFailureInfo(['type' => $error::class]));
+
+        $failed->setNamespace($request->getNamespace());
+        $failed->setIdentity($request->getIdentity());
+        $failed->setTaskToken($response->getTaskToken());
+        $failed->setFailure($failure);
+
+        try {
+            $this->inner->{$rpc}($failed, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US]);
+        } catch (\RuntimeException $e) {
+            // The task already closed or timed out: nothing is left to answer.
+            if (self::GRPC_NOT_FOUND !== $e->getCode()) {
+                throw $e;
+            }
+        }
+
+        return true;
     }
 
     /**

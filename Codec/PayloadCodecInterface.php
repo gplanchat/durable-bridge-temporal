@@ -15,6 +15,8 @@ use Temporal\Api\Common\V1\Payload;
  * - `decode()` returns a payload without its mark unchanged, so history written before the codec
  *   was enabled stays readable;
  * - `decode()` throws on a payload it recognises but cannot decode, an unknown key for instance.
+ *   The message reaches the Temporal server and its Web UI: it must never contain payload or key
+ *   bytes.
  */
 interface PayloadCodecInterface
 {
