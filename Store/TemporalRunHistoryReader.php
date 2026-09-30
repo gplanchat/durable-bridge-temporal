@@ -224,7 +224,9 @@ final readonly class TemporalRunHistoryReader
      */
     private static function belongsToTheRunItself(string $eventType): bool
     {
-        if (str_starts_with($eventType, 'EVENT_TYPE_WORKFLOW_TASK_')) {
+        // The memo the worker upserts with a workflow task (#514) is plumbing too: on a line of
+        // its own it drew a lane with no length, once per wait (#850). It stays in the journal.
+        if (str_starts_with($eventType, 'EVENT_TYPE_WORKFLOW_TASK_') || 'EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED' === $eventType) {
             return true;
         }
 
