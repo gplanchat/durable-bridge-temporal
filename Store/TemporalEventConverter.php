@@ -383,7 +383,7 @@ final class TemporalEventConverter
 
                 return new ChildWorkflowScheduled(
                     $this->id,
-                    $childWorkflowId,
+                    ExecutionId::fromString($childWorkflowId),
                     $childType,
                     $childInput,
                     ParentClosePolicy::Terminate,
@@ -409,7 +409,7 @@ final class TemporalEventConverter
                     }
                 }
 
-                return new ChildWorkflowCompleted($this->id, $childWorkflowId, $childResult);
+                return new ChildWorkflowCompleted($this->id, ExecutionId::fromString($childWorkflowId), $childResult);
 
             default:
                 return null;
