@@ -70,14 +70,14 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
 
     public function __construct(
         private readonly TemporalConnection $connection,
-        ExecutionId|string $executionId,
+        ExecutionId $executionId,
         /**
          * Source of the real `scheduledEventId`s for {@see cancelActivity()}. Absent, targeted
          * activity cancellation is not emitted — see that method's note.
          */
         private readonly ?TemporalExecutionHistory $history = null,
     ) {
-        $this->id = $executionId instanceof ExecutionId ? $executionId : ExecutionId::fromString($executionId);
+        $this->id = $executionId;
         $this->executionId = $this->id->toString();
     }
 
