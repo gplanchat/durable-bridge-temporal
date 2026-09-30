@@ -506,13 +506,14 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                 $attr = $event->getWorkflowExecutionUpdateCompletedEventAttributes();
                 if (null !== $attr) {
                     // Matched by the update id in `meta` (field 1, echoed from the worker's
-                    // response by UpdateProtocol), else by `accepted_event_id` (field 3, added
+                    // response by UpdateProtocol); when it is empty or unknown, by `accepted_event_id` (field 3, added
                     // later to the proto). Never by position: updates may interleave (#803).
                     $updateId = (string) $attr->getMeta()?->getUpdateId();
                     $acceptedEventId = (int) $attr->getAcceptedEventId();
                     $outcome = $attr->getOutcome();
+                    $byId = array_filter($this->updates, static fn(array $u): bool => '' !== $updateId && $u['updateId'] === $updateId);
                     foreach ($this->updates as $i => $update) {
-                        $matches = '' !== $updateId ? $update['updateId'] === $updateId : $update['eventId'] === $acceptedEventId;
+                        $matches = [] !== $byId ? isset($byId[$i]) : $update['eventId'] === $acceptedEventId;
                         if (!$matches || null === $outcome) {
                             continue;
                         }
@@ -760,6 +761,8 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
 
     /**
      * The recorded outcome of an update, by its id, or null while it has not completed.
+     *
+     * @internal
      */
     public function updateOutcome(string $updateId): ?SlotOutcome
     {
