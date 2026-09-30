@@ -65,9 +65,9 @@ final class TemporalEventConverter
 
     private readonly ExecutionId $id;
 
-    public function __construct(string $executionId)
+    public function __construct(ExecutionId|string $executionId)
     {
-        $this->id = ExecutionId::fromString($executionId);
+        $this->id = $executionId instanceof ExecutionId ? $executionId : ExecutionId::fromString($executionId);
     }
 
     /**
@@ -80,7 +80,7 @@ final class TemporalEventConverter
      *
      * @param list<HistoryEvent> $history the whole history of the execution
      */
-    public static function forHistory(string $executionId, array $history): self
+    public static function forHistory(ExecutionId|string $executionId, array $history): self
     {
         $converter = new self($executionId);
         foreach ($history as $event) {
