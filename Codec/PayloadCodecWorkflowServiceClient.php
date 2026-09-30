@@ -12,6 +12,8 @@ use Gplanchat\Bridge\Temporal\AbstractWorkflowServiceClient;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalGrpcTimeouts;
 use Gplanchat\Bridge\Temporal\WorkflowServiceClientInterface;
 use Temporal\Api\Common\V1\Payload;
+use Temporal\Api\Enums\V1\ActivityTaskFailedCause;
+use Temporal\Api\Enums\V1\WorkflowTaskFailedCause;
 use Temporal\Api\Failure\V1\ApplicationFailureInfo;
 use Temporal\Api\Failure\V1\Failure;
 use Temporal\Api\Workflowservice\V1\PollActivityTaskQueueRequest;
@@ -88,10 +90,11 @@ final class PayloadCodecWorkflowServiceClient extends AbstractWorkflowServiceCli
     private function failTask(Message $request, Message $response, \Throwable $error): bool
     {
         if ($request instanceof PollWorkflowTaskQueueRequest) {
-            $failed = new RespondWorkflowTaskFailedRequest();
+            $failed = new RespondWorkflowTaskFailedRequest(['cause' => WorkflowTaskFailedCause::WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_WORKER_UNHANDLED_FAILURE]);
             $rpc = 'RespondWorkflowTaskFailed';
         } elseif ($request instanceof PollActivityTaskQueueRequest) {
-            $failed = new RespondActivityTaskFailedRequest();
+            // A server older than this field ignores it, as proto3 does with any unknown field.
+            $failed = new RespondActivityTaskFailedRequest(['cause' => ActivityTaskFailedCause::ACTIVITY_TASK_FAILED_CAUSE_ACTIVITY_WORKER_UNHANDLED_FAILURE]);
             $rpc = 'RespondActivityTaskFailed';
         } else {
             return false;
