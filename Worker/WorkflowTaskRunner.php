@@ -116,7 +116,7 @@ final readonly class WorkflowTaskRunner
             },
         );
 
-        (new WorkflowFiberDriver($lifecycle))->run($executionId->toString(), $context, $environment, $handler);
+        (new WorkflowFiberDriver($lifecycle))->run($context, $environment, $handler);
 
         $commands = $commandBuffer->flush();
 
