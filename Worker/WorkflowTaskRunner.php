@@ -8,6 +8,7 @@ use Gplanchat\Bridge\Temporal\Grpc\TemporalHistoryCursor;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Durable\Awaitable\Awaitable;
 use Gplanchat\Durable\ExecutionContext;
+use Gplanchat\Durable\ExecutionId;
 use Gplanchat\Durable\ExecutionRuntime;
 use Gplanchat\Durable\Observation\WaitReason;
 use Gplanchat\Durable\RegistryActivityExecutor;
@@ -111,11 +112,11 @@ final readonly class WorkflowTaskRunner
                     $journal->append($event);
                 }
 
-                return WaitReason::describe($pending, $journal, $executionId);
+                return WaitReason::describe($pending, $journal, $executionId->toString());
             },
         );
 
-        (new WorkflowFiberDriver($lifecycle))->run($executionId, $context, $environment, $handler);
+        (new WorkflowFiberDriver($lifecycle))->run($executionId->toString(), $context, $environment, $handler);
 
         $commands = $commandBuffer->flush();
 
@@ -130,17 +131,17 @@ final readonly class WorkflowTaskRunner
     private function resolveExecutionId(
         PollWorkflowTaskQueueResponse $poll,
         TemporalExecutionHistory $history,
-    ): string {
+    ): ExecutionId {
         $fromMemo = $history->durableExecutionId();
         if (null !== $fromMemo && '' !== $fromMemo) {
-            return $fromMemo;
+            return ExecutionId::fromString($fromMemo);
         }
 
         $exec = $poll->getWorkflowExecution();
         if (null !== $exec) {
             $wfId = $exec->getWorkflowId();
             if ('' !== $wfId) {
-                return $wfId;
+                return ExecutionId::fromString($wfId);
             }
         }
 

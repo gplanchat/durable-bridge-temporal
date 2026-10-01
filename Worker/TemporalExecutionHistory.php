@@ -818,14 +818,14 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
      *
      * @return list<Event>
      */
-    public function waitJournal(string $executionId): array
+    public function waitJournal(ExecutionId $executionId): array
     {
         $events = [];
         foreach ($this->activityNames as $activityId => $name) {
-            $events[] = new ActivityScheduled(ExecutionId::fromString($executionId), $activityId, $name, []);
+            $events[] = new ActivityScheduled($executionId, $activityId, $name, []);
         }
         foreach ($this->timerDeadlines as $timerId => $deadline) {
-            $events[] = new TimerScheduled(ExecutionId::fromString($executionId), $timerId, $deadline);
+            $events[] = new TimerScheduled($executionId, $timerId, $deadline);
         }
 
         return $events;
