@@ -65,9 +65,9 @@ final class TemporalEventConverter
 
     private readonly ExecutionId $id;
 
-    public function __construct(string $executionId)
+    public function __construct(ExecutionId $executionId)
     {
-        $this->id = ExecutionId::fromString($executionId);
+        $this->id = $executionId;
     }
 
     /**
@@ -80,7 +80,7 @@ final class TemporalEventConverter
      *
      * @param list<HistoryEvent> $history the whole history of the execution
      */
-    public static function forHistory(string $executionId, array $history): self
+    public static function forHistory(ExecutionId $executionId, array $history): self
     {
         $converter = new self($executionId);
         foreach ($history as $event) {
@@ -383,7 +383,7 @@ final class TemporalEventConverter
 
                 return new ChildWorkflowScheduled(
                     $this->id,
-                    $childWorkflowId,
+                    ExecutionId::fromString($childWorkflowId),
                     $childType,
                     $childInput,
                     ParentClosePolicy::Terminate,
@@ -409,7 +409,7 @@ final class TemporalEventConverter
                     }
                 }
 
-                return new ChildWorkflowCompleted($this->id, $childWorkflowId, $childResult);
+                return new ChildWorkflowCompleted($this->id, ExecutionId::fromString($childWorkflowId), $childResult);
 
             default:
                 return null;
