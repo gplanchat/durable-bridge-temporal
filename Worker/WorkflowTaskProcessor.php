@@ -52,7 +52,8 @@ final readonly class WorkflowTaskProcessor
         try {
             $result = $this->runner->run($poll);
         } catch (WorkflowTaskFailure|PayloadDecodeFailure $e) {
-            // A payload on a later history page is decoded here, during replay, not at poll time (#824).
+            // A payload on a later history page is decoded here, during replay, not at poll time (#824);
+            // a history that does not read, its started memo included, fails the same way (#890).
             $this->respondTaskFailed($poll->getTaskToken(), $e);
 
             return true;

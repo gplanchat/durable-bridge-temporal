@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Gplanchat\Bridge\Temporal\Worker;
 
+use Gplanchat\Bridge\Temporal\Codec\PayloadDecodeFailure;
 use Gplanchat\Bridge\Temporal\Grpc\TemporalHistoryCursor;
 use Gplanchat\Bridge\Temporal\TemporalConnection;
 use Gplanchat\Durable\Awaitable\Awaitable;
@@ -62,6 +63,7 @@ final readonly class WorkflowTaskRunner
      *
      * @throws \InvalidArgumentException if no handler is found for the workflow type
      * @throws \RuntimeException         on fiber or protocol errors
+     * @throws PayloadDecodeFailure      when the history does not read, its started memo included (#890)
      */
     public function run(PollWorkflowTaskQueueResponse $poll): WorkflowTaskResult
     {
@@ -71,7 +73,14 @@ final readonly class WorkflowTaskRunner
         }
 
         $events = $this->historyCursor->eventsFromPoll($poll);
-        $history = TemporalExecutionHistory::fromEvents($events);
+
+        try {
+            $history = TemporalExecutionHistory::fromEvents($events);
+        } catch (\JsonException $e) {
+            // A memo or payload that does not read (#890): fail the task, as an undecodable payload
+            // does (#824), so the worker answers it and polls again instead of dying on it.
+            throw new PayloadDecodeFailure(\sprintf('Workflow history cannot be read: %s', $e->getMessage()), 0, $e);
+        }
 
         $executionId = $this->resolveExecutionId($poll, $history);
 
@@ -133,7 +142,7 @@ final readonly class WorkflowTaskRunner
         TemporalExecutionHistory $history,
     ): ExecutionId {
         $fromMemo = $history->durableExecutionId();
-        if (null !== $fromMemo && '' !== $fromMemo) {
+        if (null !== $fromMemo) {
             return ExecutionId::fromString($fromMemo);
         }
 
