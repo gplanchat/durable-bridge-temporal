@@ -112,11 +112,11 @@ final readonly class WorkflowTaskRunner
                     $journal->append($event);
                 }
 
-                return WaitReason::describe($pending, $journal, $executionId->toString());
+                return WaitReason::describe($pending, $journal, $executionId);
             },
         );
 
-        (new WorkflowFiberDriver($lifecycle))->run($executionId->toString(), $context, $environment, $handler);
+        (new WorkflowFiberDriver($lifecycle))->run($context, $environment, $handler);
 
         $commands = $commandBuffer->flush();
 
