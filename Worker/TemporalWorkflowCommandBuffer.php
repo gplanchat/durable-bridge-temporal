@@ -214,12 +214,8 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
 
         if (null !== $options->memo) {
             $memo = new Memo();
+            // The two keys Durable writes itself are refused by the ChildWorkflowOptions constructor.
             foreach ($options->memo as $key => $value) {
-                // The child's journal reads its execution id from the memo, and recordWait()
-                // overwrites the wait key: a user value there would be misread or lost.
-                if (JournalExecutionIdResolver::MEMO_KEY_DURABLE_EXECUTION_ID === $key || JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON === $key) {
-                    throw new UnsupportedByBackendException(\sprintf('The Temporal backend cannot honour the key "%s" in ChildWorkflowOptions::$memo: Durable writes this key itself; choose another key.', $key));
-                }
                 $memo->getFields()[$key] = JsonPlainPayload::encode($value);
             }
             $attrs->setMemo($memo);
