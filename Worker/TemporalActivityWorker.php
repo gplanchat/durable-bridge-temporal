@@ -67,17 +67,19 @@ final readonly class TemporalActivityWorker
 
         try {
             $message = TemporalActivityScheduleInput::toActivityMessage($resp);
-        } catch (\JsonException $unreadable) {
-            // An input that is not JSON will not become JSON on the next worker: left to throw, it
-            // stopped this worker, then the next one (#938, the #775 failure mode). The server gets
-            // the class and message; the log gets the error itself, trace included (#936).
+        } catch (\JsonException|\InvalidArgumentException $unreadable) {
+            // An input that is not JSON, or not the expected object, will not become readable on
+            // the next attempt: left to throw, it stopped this worker, then the next one (#938, the
+            // #775 failure mode). The answer is non-retryable, unlike an undecodable payload whose
+            // key can come back. The server gets the class and message; the log gets the error
+            // itself, trace included (#936).
             $this->logger?->error('An activity task input cannot be read; the worker answers the task as failed.', [
                 'exception' => $unreadable,
                 'event_id' => null,
                 'rpc' => 'RespondActivityTaskFailed',
                 'activity_id' => $resp->getActivityId(),
             ]);
-            $this->respondFailed($resp, $unreadable::class, $unreadable->getMessage(), '', false, ActivityTaskFailedCause::ACTIVITY_TASK_FAILED_CAUSE_ACTIVITY_WORKER_UNHANDLED_FAILURE);
+            $this->respondFailed($resp, $unreadable::class, $unreadable->getMessage(), '', true, ActivityTaskFailedCause::ACTIVITY_TASK_FAILED_CAUSE_ACTIVITY_WORKER_UNHANDLED_FAILURE);
 
             return;
         }
