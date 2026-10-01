@@ -44,6 +44,7 @@ use Temporal\Api\Common\V1\RetryPolicy;
 use Temporal\Api\Enums\V1\CommandType;
 use Temporal\Api\Failure\V1\ApplicationFailureInfo;
 use Temporal\Api\Failure\V1\Failure;
+use Temporal\Api\Sdk\V1\UserMetadata;
 use Temporal\Api\Taskqueue\V1\TaskQueue;
 
 /**
@@ -211,9 +212,31 @@ final class TemporalWorkflowCommandBuffer implements WorkflowCommandBufferInterf
         $attrs->setParentClosePolicy(TemporalPolicyMapper::parentClosePolicy($options->parentClosePolicy));
         $attrs->setWorkflowIdReusePolicy(TemporalPolicyMapper::idReusePolicy($options->workflowIdReusePolicy));
 
+        if (null !== $options->memo) {
+            $memo = new Memo();
+            foreach ($options->memo as $key => $value) {
+                // The child's journal reads its execution id from the memo, and recordWait()
+                // overwrites the wait key: a user value there would be misread or lost.
+                if (JournalExecutionIdResolver::MEMO_KEY_DURABLE_EXECUTION_ID === $key || JournalExecutionIdResolver::MEMO_KEY_DURABLE_WAITING_ON === $key) {
+                    throw new UnsupportedByBackendException(\sprintf('The Temporal backend cannot honour the key "%s" in ChildWorkflowOptions::$memo: Durable writes this key itself; choose another key.', $key));
+                }
+                $memo->getFields()[$key] = JsonPlainPayload::encode($value);
+            }
+            $attrs->setMemo($memo);
+        }
+
         $cmd = new Command();
         $cmd->setCommandType(CommandType::COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION);
         $cmd->setStartChildWorkflowExecutionCommandAttributes($attrs);
+        // What the Temporal UI shows for the child. The same "empty means none" rule as the journal.
+        $summary = '' === $options->staticSummary ? null : $options->staticSummary;
+        $details = '' === $options->staticDetails ? null : $options->staticDetails;
+        if (null !== $summary || null !== $details) {
+            $cmd->setUserMetadata(new UserMetadata([
+                'summary' => null === $summary ? null : JsonPlainPayload::encode($summary),
+                'details' => null === $details ? null : JsonPlainPayload::encode($details),
+            ]));
+        }
         $this->commands[] = $cmd;
     }
 
