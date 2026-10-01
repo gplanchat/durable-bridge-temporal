@@ -200,6 +200,11 @@ final readonly class WorkflowTaskProcessor
         } catch (\RuntimeException $e) {
             // NOT_FOUND: task token is stale or workflow was already closed (e.g. replayed from a prior attempt).
             if (5 === $e->getCode()) {
+                $this->logger?->warning('Temporal rejected a workflow task completion; the worker keeps polling.', [
+                    'code' => $e->getCode(),
+                    'message' => $e->getMessage(),
+                ]);
+
                 return;
             }
             // INVALID_ARGUMENT: the server has already failed and rescheduled the task, for instance
