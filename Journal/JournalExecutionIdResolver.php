@@ -14,10 +14,10 @@ final class JournalExecutionIdResolver
 {
     private function __construct() {}
 
-    public const MEMO_KEY_DURABLE_EXECUTION_ID = 'durableExecutionId';
+    public const MEMO_KEY_DURABLE_EXECUTION_ID = \Gplanchat\Durable\ChildWorkflowOptions::MEMO_KEY_DURABLE_EXECUTION_ID;
 
     /** What a suspended run last waited on, in the core's words (#514), upserted at each suspension. */
-    public const MEMO_KEY_DURABLE_WAITING_ON = 'durableWaitingOn';
+    public const MEMO_KEY_DURABLE_WAITING_ON = \Gplanchat\Durable\ChildWorkflowOptions::MEMO_KEY_DURABLE_WAITING_ON;
 
     /**
      * The execution id a memo carries, or `null` when it carries none Durable wrote.
