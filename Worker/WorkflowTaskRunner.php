@@ -72,14 +72,22 @@ final readonly class WorkflowTaskRunner
             return new WorkflowTaskResult([], null);
         }
 
-        $events = $this->historyCursor->eventsFromPoll($poll);
+        // The id of the event being read, for the failure below (#936).
+        $eventId = null;
+        $events = (function () use ($poll, &$eventId): \Generator {
+            foreach ($this->historyCursor->eventsFromPoll($poll) as $event) {
+                $eventId = (int) $event->getEventId();
+                yield $event;
+            }
+        })();
 
         try {
             $history = TemporalExecutionHistory::fromEvents($events);
         } catch (\JsonException $e) {
-            // A memo or payload that does not read (#890): fail the task, as an undecodable payload
-            // does (#824), so the worker answers it and polls again instead of dying on it.
-            throw new PayloadDecodeFailure(\sprintf('Workflow history cannot be read: %s', $e->getMessage()), 0, $e);
+            // A memo or payload that does not read, on any history page (#890): fail the task, as an
+            // undecodable payload does (#824), so the worker answers it and polls again instead of
+            // dying on it.
+            throw new PayloadDecodeFailure(\sprintf('Workflow history cannot be read: %s', $e->getMessage()), 0, $e, $eventId);
         }
 
         $executionId = $this->resolveExecutionId($poll, $history);
