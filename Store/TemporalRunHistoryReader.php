@@ -90,9 +90,24 @@ final readonly class TemporalRunHistoryReader
 
         $history = [];
         $runType = null;
+        /** @var array<string, ?string> $updateActions action key of each accepted update, by update id */
+        $updateActions = [];
         foreach ($this->cursor->events($execution) as $event) {
             $type = EventType::name($event->getEventType());
             $runType ??= null !== $event->getWorkflowExecutionStartedEventAttributes() ? self::workflowTypeOf($event) : null;
+            $actionKey = self::actionKeyOf($event, $type);
+
+            // An update's completion joins its acceptance by the update id in `meta` first, then by
+            // `accepted_event_id`, the same order PR #856 uses (#860). Server 1.20 writes no
+            // `accepted_event_id`.
+            $updateId = (string) $event->getWorkflowExecutionUpdateAcceptedEventAttributes()?->getAcceptedRequest()?->getMeta()?->getUpdateId();
+            if ('' !== $updateId) {
+                $updateActions[$updateId] = $actionKey;
+            }
+            $completedId = (string) $event->getWorkflowExecutionUpdateCompletedEventAttributes()?->getMeta()?->getUpdateId();
+            if (isset($updateActions[$completedId])) {
+                $actionKey = $updateActions[$completedId];
+            }
 
             $history[] = new WorkflowRunEvent(
                 (int) $event->getEventId(),
@@ -100,7 +115,7 @@ final readonly class TemporalRunHistoryReader
                 self::kindOf($type),
                 self::labelOf($event, $type, $runType),
                 self::detailsOf($event),
-                self::actionKeyOf($event, $type),
+                $actionKey,
                 // A suffix is enough: Temporal names `_STARTED` every event by which a worker
                 // takes over. `WORKFLOW_EXECUTION_STARTED` falls under it too, and that is
                 // inert — it is event 1, nothing precedes it, so no interval can be counted as
