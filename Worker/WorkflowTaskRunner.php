@@ -112,7 +112,7 @@ final readonly class WorkflowTaskRunner
                     $journal->append($event);
                 }
 
-                return WaitReason::describe($pending, $journal, $executionId->toString());
+                return WaitReason::describe($pending, $journal, $executionId);
             },
         );
 
