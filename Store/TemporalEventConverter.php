@@ -38,6 +38,7 @@ use Gplanchat\Durable\ParentClosePolicy;
 use Gplanchat\Durable\Versioning\ChangePoint;
 use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\Enums\V1\RetryState;
+use Temporal\Api\Enums\V1\TimeoutType;
 use Temporal\Api\History\V1\HistoryEvent;
 use Temporal\Api\History\V1\MarkerRecordedEventAttributes;
 
@@ -58,6 +59,12 @@ final class TemporalEventConverter
 
     /** @var array<int, string> startedEventId → timerId */
     private array $startedEventIdToTimerId = [];
+
+    /** @var array<int, int> startedEventId → attempt */
+    private array $activityStartedAttempts = [];
+
+    /** @var array<string, string> activityId → activity type */
+    private array $activityTypes = [];
 
     private int $sideEffectSlot = 0;
 
@@ -172,6 +179,7 @@ final class TemporalEventConverter
                 if (null !== $at) {
                     $activityType = (string) $at->getName();
                 }
+                $this->activityTypes[$activityId] = $activityType;
 
                 $input = [];
                 $inputPayloads = $attr->getInput();
@@ -232,6 +240,41 @@ final class TemporalEventConverter
                     \is_string($type) && '' !== $type ? $type : \RuntimeException::class,
                     $msg,
                     retryState: self::toActivityRetryState($attr->getRetryState()),
+                );
+
+            case EventType::EVENT_TYPE_ACTIVITY_TASK_STARTED:
+                $attr = $event->getActivityTaskStartedEventAttributes();
+                if (null !== $attr) {
+                    $this->activityStartedAttempts[$eventId] = $attr->getAttempt();
+                }
+
+                return null;
+
+            case EventType::EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+                $attr = $event->getActivityTaskTimedOutEventAttributes();
+                $activityId = null !== $attr ? $this->scheduledEventIdToActivityId[$attr->getScheduledEventId()] ?? null : null;
+                if (null === $attr || null === $activityId) {
+                    return null;
+                }
+
+                // Same message as TemporalExecutionHistory and the journal backends; a kind the
+                // server did not name is not guessed.
+                $kind = match ($attr->getFailure()?->getTimeoutFailureInfo()?->getTimeoutType()) {
+                    TimeoutType::TIMEOUT_TYPE_START_TO_CLOSE => 'start-to-close ',
+                    TimeoutType::TIMEOUT_TYPE_SCHEDULE_TO_START => 'schedule-to-start ',
+                    TimeoutType::TIMEOUT_TYPE_SCHEDULE_TO_CLOSE => 'schedule-to-close ',
+                    TimeoutType::TIMEOUT_TYPE_HEARTBEAT => 'heartbeat ',
+                    default => '',
+                };
+
+                return new ActivityFailed(
+                    $this->id,
+                    $activityId,
+                    \RuntimeException::class,
+                    \sprintf('Activity %stimeout exceeded.', $kind),
+                    activityName: $this->activityTypes[$activityId] ?? '',
+                    failureAttempt: max(1, $this->activityStartedAttempts[$attr->getStartedEventId()] ?? 1),
+                    retryState: ActivityRetryState::Timeout,
                 );
 
             case EventType::EVENT_TYPE_ACTIVITY_TASK_CANCELED:
