@@ -27,8 +27,10 @@ use Temporal\Api\Enums\V1\EventType;
 use Temporal\Api\History\V1\HistoryEvent;
 use Temporal\Api\Taskqueue\V1\TaskQueue;
 use Temporal\Api\Workflowservice\V1\DescribeWorkflowExecutionRequest;
+use Temporal\Api\Workflowservice\V1\RequestCancelWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\SignalWorkflowExecutionRequest;
 use Temporal\Api\Workflowservice\V1\StartWorkflowExecutionRequest;
+use Temporal\Api\Workflowservice\V1\TerminateWorkflowExecutionRequest;
 
 /**
  * Client-side API for driving workflow executions from application code.
@@ -180,6 +182,56 @@ final readonly class WorkflowClient implements WorkflowClientInterface
         }
 
         $this->client->SignalWorkflowExecution($req, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US]);
+    }
+
+    /**
+     * Requests the cancellation of a running workflow: it receives it where it waits, and can
+     * compensate before it ends cancelled.
+     *
+     * Provisional signature: it follows signal(), pending the design of #782.
+     *
+     * @throws \RuntimeException with code 5 (NotFound) when the execution has already ended or does not exist
+     */
+    public function cancel(string $workflowId, ?string $requestId = null): void
+    {
+        $req = new RequestCancelWorkflowExecutionRequest();
+        $req->setNamespace($this->settings->namespace->name());
+        $req->setWorkflowExecution(new WorkflowExecution(['workflow_id' => $workflowId]));
+        $req->setIdentity($this->settings->identity);
+        $req->setRequestId($requestId ?? bin2hex(random_bytes(16)));
+
+        $this->endedOrNotFound($workflowId, fn() => $this->client->RequestCancelWorkflowExecution($req, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US]));
+    }
+
+    /**
+     * Ends a running workflow at once, without running more of its code.
+     *
+     * Provisional signature, pending the design of #782.
+     *
+     * @throws \RuntimeException with code 5 (NotFound) when the execution has already ended or does not exist
+     */
+    public function terminate(string $workflowId, string $reason = ''): void
+    {
+        $req = new TerminateWorkflowExecutionRequest();
+        $req->setNamespace($this->settings->namespace->name());
+        $req->setWorkflowExecution(new WorkflowExecution(['workflow_id' => $workflowId]));
+        $req->setIdentity($this->settings->identity);
+        $req->setReason($reason);
+
+        $this->endedOrNotFound($workflowId, fn() => $this->client->TerminateWorkflowExecution($req, [], ['timeout' => TemporalGrpcTimeouts::SHORT_US]));
+    }
+
+    private function endedOrNotFound(string $workflowId, \Closure $call): void
+    {
+        try {
+            $call();
+        } catch (\RuntimeException $failure) {
+            if (self::GRPC_NOT_FOUND === $failure->getCode()) {
+                throw new \RuntimeException(\sprintf('Workflow "%s" has already ended.', $workflowId), self::GRPC_NOT_FOUND, $failure);
+            }
+
+            throw $failure;
+        }
     }
 
     /**
