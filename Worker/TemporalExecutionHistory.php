@@ -11,6 +11,7 @@ use Gplanchat\Durable\Event\ActivityScheduled;
 use Gplanchat\Durable\Event\Event;
 use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Exception\DurableActivityFailedException;
+use Gplanchat\Durable\Exception\DurableChildWorkflowFailedException;
 use Gplanchat\Durable\Exception\DurableNexusOperationFailedException;
 use Gplanchat\Durable\Exception\DurableUpdateFailedException;
 use Gplanchat\Durable\Exception\WorkflowCancelledFailure;
@@ -125,7 +126,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var list<string> child execution IDs in schedule order */
     private array $childExecutionIds = [];
 
-    /** @var array<string, array{result: mixed, failed: bool}> child execution ID → outcome */
+    /** @var array<string, array{result: mixed, failed: bool, reason?: string}> child execution ID → outcome */
     private array $childOutcomes = [];
 
     private int $sideEffectSlot = 0;
@@ -579,17 +580,37 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                 $this->cancelRequestedCause = '' !== $cause ? $cause : 'cancel_requested';
                 break;
 
+                // A child that ends without a result still settles its parent, with the failure the
+                // journal backends raise. Left unread, the parent waited for good (#980).
             case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
-                $attr = $event->getChildWorkflowExecutionFailedEventAttributes();
-                if (null !== $attr) {
-                    $exec = $attr->getWorkflowExecution();
-                    if (null !== $exec) {
-                        $childId = $exec->getWorkflowId();
-                        $this->childOutcomes[$childId] = ['result' => null, 'failed' => true];
-                    }
-                }
+                $this->settleChildAsFailed($event->getChildWorkflowExecutionFailedEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'failed');
+                break;
+
+            case EventType::EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED:
+                $this->settleChildAsFailed($event->getStartChildWorkflowExecutionFailedEventAttributes()?->getWorkflowId(), 'could not be started');
+                break;
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT:
+                $this->settleChildAsFailed($event->getChildWorkflowExecutionTimedOutEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'timed out');
+                break;
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED:
+                $this->settleChildAsFailed($event->getChildWorkflowExecutionCanceledEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'was cancelled');
+                break;
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED:
+                $this->settleChildAsFailed($event->getChildWorkflowExecutionTerminatedEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'was terminated');
                 break;
         }
+    }
+
+    private function settleChildAsFailed(?string $childId, string $reason): void
+    {
+        if (null === $childId || '' === $childId) {
+            return;
+        }
+
+        $this->childOutcomes[$childId] = ['result' => null, 'failed' => true, 'reason' => $reason];
     }
 
     public function findActivitySlotResult(int $slot): ?SlotOutcome
@@ -723,7 +744,10 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         }
 
         if ($outcome['failed']) {
-            return new ChildWorkflowOutcome($childId, null, new \RuntimeException('Child workflow failed'));
+            return new ChildWorkflowOutcome($childId, null, new DurableChildWorkflowFailedException(
+                $childId,
+                \sprintf('Child workflow %s %s.', $childId, $outcome['reason'] ?? 'failed'),
+            ));
         }
 
         return new ChildWorkflowOutcome($childId, $outcome['result']);
