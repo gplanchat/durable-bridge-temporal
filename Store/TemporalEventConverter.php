@@ -12,6 +12,7 @@ use Gplanchat\Durable\Event\ActivityCompleted;
 use Gplanchat\Durable\Event\ActivityFailed;
 use Gplanchat\Durable\Event\ActivityScheduled;
 use Gplanchat\Durable\Event\ChildWorkflowCompleted;
+use Gplanchat\Durable\Event\ChildWorkflowFailed;
 use Gplanchat\Durable\Event\ChildWorkflowScheduled;
 use Gplanchat\Durable\Event\Event;
 use Gplanchat\Durable\Event\ExecutionCompleted;
@@ -411,6 +412,23 @@ final class TemporalEventConverter
 
                 return new ChildWorkflowCompleted($this->id, ExecutionId::fromString($childWorkflowId), $childResult);
 
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
+                $attr = $event->getChildWorkflowExecutionFailedEventAttributes();
+
+                return $this->childFailed($attr?->getWorkflowExecution()?->getWorkflowId(), 'failed', $attr?->getFailure());
+
+            case EventType::EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED:
+                return $this->childFailed($event->getStartChildWorkflowExecutionFailedEventAttributes()?->getWorkflowId(), 'could not be started');
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT:
+                return $this->childFailed($event->getChildWorkflowExecutionTimedOutEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'timed out');
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED:
+                return $this->childFailed($event->getChildWorkflowExecutionCanceledEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'was cancelled');
+
+            case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED:
+                return $this->childFailed($event->getChildWorkflowExecutionTerminatedEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'was terminated');
+
             default:
                 return null;
         }
@@ -450,6 +468,29 @@ final class TemporalEventConverter
         return isset($this->cancellationDeliveredTargets[$operationId])
             ? ActivityCancellationReason::WORKFLOW_CANCELLED
             : ActivityCancellationReason::RACE_SUPERSEDED;
+    }
+
+    /**
+     * The kind and class come from the child's failure when it carries the stored payload the worker
+     * writes into the ApplicationFailureInfo details; they stay empty otherwise.
+     */
+    private function childFailed(?string $childWorkflowId, string $ending, ?\Temporal\Api\Failure\V1\Failure $failure = null): ?ChildWorkflowFailed
+    {
+        if (null === $childWorkflowId || '' === $childWorkflowId) {
+            return null;
+        }
+
+        $stored = self::decodeApplicationFailureDetails($failure);
+
+        return new ChildWorkflowFailed(
+            $this->id,
+            ExecutionId::fromString($childWorkflowId),
+            \sprintf('Child workflow %s %s.', $childWorkflowId, $ending),
+            (int) ($stored['failureCode'] ?? 0),
+            isset($stored['kind']) ? (string) $stored['kind'] : null,
+            isset($stored['failureClass']) ? (string) $stored['failureClass'] : null,
+            \is_array($stored['context'] ?? null) ? $stored['context'] : [],
+        );
     }
 
     /**
