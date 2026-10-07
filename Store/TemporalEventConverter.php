@@ -498,6 +498,11 @@ final class TemporalEventConverter
      */
     private static function decodeApplicationFailureDetails(?\Temporal\Api\Failure\V1\Failure $failure): ?array
     {
+        // The server wraps a child's failure (ChildWorkflowExecutionFailureInfo): the stored payload
+        // sits in the ApplicationFailureInfo of a nested cause, so walk down until one carries it.
+        while (null !== $failure && null === $failure->getApplicationFailureInfo()) {
+            $failure = $failure->getCause();
+        }
         $details = $failure?->getApplicationFailureInfo()?->getDetails();
         if (null === $details) {
             return null;
