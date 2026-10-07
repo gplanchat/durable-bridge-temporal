@@ -129,6 +129,21 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
     /** @var array<string, array{result: mixed, failed: bool, reason?: string}> child execution ID → outcome */
     private array $childOutcomes = [];
 
+    /**
+     * Child slots whose start the server refused, by slot: the child id can repeat across slots, so
+     * a refusal belongs to the initiated slot, never to the id.
+     *
+     * @var array<int, true>
+     */
+    private array $childStartRefused = [];
+
+    /**
+     * Initiated event id => child slot.
+     *
+     * @var array<int, int>
+     */
+    private array $childSlotByInitiatedEvent = [];
+
     private int $sideEffectSlot = 0;
 
     private ?string $durableExecutionId = null;
@@ -535,6 +550,7 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                 $attr = $event->getStartChildWorkflowExecutionInitiatedEventAttributes();
                 if (null !== $attr) {
                     $this->childExecutionIds[] = (string) $attr->getWorkflowId();
+                    $this->childSlotByInitiatedEvent[(int) $event->getEventId()] = \count($this->childExecutionIds) - 1;
                     // The type, in parallel and at the same index: it is the slot's identity,
                     // the execution id being generated.
                     $this->childWorkflowTypes[] = (string) ($attr->getWorkflowType()?->getName() ?? '');
@@ -587,7 +603,12 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
                 break;
 
             case EventType::EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED:
-                $this->settleChildAsFailed($event->getStartChildWorkflowExecutionFailedEventAttributes()?->getWorkflowId(), 'could not be started');
+                $slot = $this->childSlotByInitiatedEvent[(int) $event->getStartChildWorkflowExecutionFailedEventAttributes()?->getInitiatedEventId()] ?? null;
+                if (null !== $slot) {
+                    $this->childStartRefused[$slot] = true;
+                } else {
+                    $this->settleChildAsFailed($event->getStartChildWorkflowExecutionFailedEventAttributes()?->getWorkflowId(), 'could not be started');
+                }
                 break;
 
             case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT:
@@ -610,7 +631,8 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
             return;
         }
 
-        $this->childOutcomes[$childId] = ['result' => null, 'failed' => true, 'reason' => $reason];
+        // Never over an outcome already read: the same id can come back on a later slot.
+        $this->childOutcomes[$childId] ??= ['result' => null, 'failed' => true, 'reason' => $reason];
     }
 
     public function findActivitySlotResult(int $slot): ?SlotOutcome
@@ -736,6 +758,13 @@ final class TemporalExecutionHistory implements WorkflowHistorySourceInterface
         $childId = $this->childExecutionIds[$slot] ?? null;
         if (null === $childId) {
             return null;
+        }
+
+        if (isset($this->childStartRefused[$slot])) {
+            return new ChildWorkflowOutcome($childId, null, new DurableChildWorkflowFailedException(
+                $childId,
+                \sprintf('Child workflow %s could not be started.', $childId),
+            ));
         }
 
         $outcome = $this->childOutcomes[$childId] ?? null;
