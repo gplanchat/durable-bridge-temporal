@@ -188,9 +188,11 @@ final readonly class WorkflowClient implements WorkflowClientInterface
      * Requests the cancellation of a running workflow: it receives it where it waits, and can
      * compensate before it ends cancelled.
      *
-     * Provisional signature: it follows signal(), pending the design of #782.
+     * Provisional signature: it follows signal(), pending the design of #782. No run id is sent:
+     * the call acts on the current run of the chain. A retry with the same request id succeeds while
+     * the run is open and throws once it has ended.
      *
-     * @throws \RuntimeException with code 5 (NotFound) when the execution has already ended or does not exist
+     * @throws \RuntimeException with code 5 (NotFound) when the execution has ended or does not exist
      */
     public function cancel(string $workflowId, ?string $requestId = null): void
     {
@@ -206,9 +208,10 @@ final readonly class WorkflowClient implements WorkflowClientInterface
     /**
      * Ends a running workflow at once, without running more of its code.
      *
-     * Provisional signature, pending the design of #782.
+     * Provisional signature, pending the design of #782. No run id is sent: the call acts on the
+     * current run of the chain. Terminating an ended run answers NotFound too, so a second call throws.
      *
-     * @throws \RuntimeException with code 5 (NotFound) when the execution has already ended or does not exist
+     * @throws \RuntimeException with code 5 (NotFound) when the execution has ended or does not exist
      */
     public function terminate(string $workflowId, string $reason = ''): void
     {
@@ -227,7 +230,7 @@ final readonly class WorkflowClient implements WorkflowClientInterface
             $call();
         } catch (\RuntimeException $failure) {
             if (self::GRPC_NOT_FOUND === $failure->getCode()) {
-                throw new \RuntimeException(\sprintf('Workflow "%s" has already ended.', $workflowId), self::GRPC_NOT_FOUND, $failure);
+                throw new \RuntimeException(\sprintf('Workflow "%s" has ended or does not exist.', $workflowId), self::GRPC_NOT_FOUND, $failure);
             }
 
             throw $failure;
