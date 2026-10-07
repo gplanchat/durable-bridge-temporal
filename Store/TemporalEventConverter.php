@@ -29,6 +29,7 @@ use Gplanchat\Durable\Event\TimerScheduled;
 use Gplanchat\Durable\Event\VersionMarked;
 use Gplanchat\Durable\Event\WorkflowCancellationDelivered;
 use Gplanchat\Durable\Event\WorkflowCancellationRequested;
+use Gplanchat\Durable\Event\WorkflowContinuedAsNew;
 use Gplanchat\Durable\Event\WorkflowExecutionCancelled;
 use Gplanchat\Durable\Event\WorkflowExecutionFailed;
 use Gplanchat\Durable\Event\WorkflowSignalReceived;
@@ -471,6 +472,31 @@ final class TemporalEventConverter
 
             case EventType::EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED:
                 return $this->childFailed($event->getChildWorkflowExecutionTerminatedEventAttributes()?->getWorkflowExecution()?->getWorkflowId(), 'was terminated');
+
+            case EventType::EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW:
+                $attr = $event->getWorkflowExecutionContinuedAsNewEventAttributes();
+                if (null === $attr) {
+                    return null;
+                }
+                $nextPayload = [];
+                $ps = $attr->getInput()?->getPayloads();
+                if (null !== $ps && $ps->count() > 0) {
+                    $decoded = JsonPlainPayload::decode($ps[0]);
+                    $nextPayload = \is_array($decoded) ? $decoded : ['args' => $decoded];
+                }
+                $metadata = [];
+                if (null !== $attr->getTaskQueue() && '' !== $attr->getTaskQueue()->getName()) {
+                    $metadata['task_queue'] = $attr->getTaskQueue()->getName();
+                }
+                foreach (['workflow_run_timeout_seconds' => $attr->getWorkflowRunTimeout(), 'workflow_task_timeout_seconds' => $attr->getWorkflowTaskTimeout()] as $key => $timeout) {
+                    if (null !== $timeout && ($timeout->getSeconds() > 0 || $timeout->getNanos() > 0)) {
+                        $metadata[$key] = (float) $timeout->getSeconds() + ((float) $timeout->getNanos() / 1_000_000_000.0);
+                    }
+                }
+
+                // No newExecutionId: the server's run id is not a Durable execution id, and the
+                // successor keeps this one through the memo (#560).
+                return new WorkflowContinuedAsNew($this->id, $attr->getWorkflowType()?->getName() ?? '', $nextPayload, $metadata);
 
             default:
                 return null;
